@@ -261,7 +261,7 @@ class VastAIManager:
                 time.sleep(10)
                 continue
             
-            actual_status = status.get('actual_status', 'unknown')
+            actual_status = status.get('actual_status') or status.get('status_msg') or status.get('state', 'unknown')
             logger.info(f"Instance status: {actual_status}")
             
             if actual_status == 'running':

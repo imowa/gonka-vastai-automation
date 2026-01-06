@@ -173,36 +173,68 @@ echo "Ready for PoC Sprint"
         """
         Run the PoC Sprint on the GPU instance
         
-        This is a placeholder - in production, this would:
-        1. SSH into the instance
-        2. Deploy Gonka MLNode Docker
-        3. Wait for PoC to complete
-        4. Monitor progress
-        
         Returns:
             True if successful, False otherwise
         """
         logger.info(f"Running PoC Sprint on instance {instance_id}")
         
-        # TODO: Actual implementation would:
-        # 1. Get instance SSH details
-        # 2. Deploy Gonka MLNode
-        # 3. Monitor PoC progress via API
-        # 4. Wait for completion
-        
-        # For now, simulate PoC duration (9 minutes + buffer)
-        poc_duration = 900  # 15 minutes with buffer
-        logger.info(f"PoC Sprint in progress (will take ~{poc_duration//60} minutes)...")
-        
-        start = time.time()
-        while time.time() - start < poc_duration:
-            elapsed = int(time.time() - start)
-            remaining = poc_duration - elapsed
-            logger.info(f"PoC progress: {elapsed}s elapsed, {remaining}s remaining")
-            time.sleep(60)  # Check every minute
-        
-        logger.info("✅ PoC Sprint completed")
-        return True
+        try:
+            # Import MLNode deployer
+            spec = importlib.util.spec_from_file_location("mlnode_deployer", "scripts/5_mlnode_deployer.py")
+            deployer_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(deployer_module)
+            MLNodeDeployer = deployer_module.MLNodeDeployer
+            
+            deployer = MLNodeDeployer()
+            node_id = f"vastai-{instance_id}"
+            
+            # Step 1: Get SSH connection info
+            logger.info("Step 1: Getting SSH connection details...")
+            connection = deployer.get_instance_ssh_info(self.vastai, instance_id)
+            
+            if not connection:
+                logger.error("Failed to get SSH connection info")
+                return False
+            
+            logger.info(f"✅ SSH: {connection.username}@{connection.host}:{connection.port}")
+            
+            # Step 2: Deploy MLNode on GPU instance
+            logger.info("Step 2: Deploying Gonka MLNode...")
+            if not deployer.deploy_mlnode(connection, node_id):
+                logger.error("Failed to deploy MLNode")
+                return False
+            
+            logger.info("✅ MLNode deployed")
+            
+            # Step 3: Register MLNode with Network Node
+            logger.info("Step 3: Registering MLNode with Network Node...")
+            if not deployer.register_mlnode_with_network(connection, node_id):
+                logger.error("Failed to register MLNode")
+                deployer.cleanup_mlnode(connection, node_id)
+                return False
+            
+            logger.info("✅ MLNode registered")
+            
+            # Step 4: Wait for PoC Sprint to complete
+            logger.info("Step 4: Monitoring PoC Sprint progress...")
+            success = deployer.wait_for_poc_completion(node_id, timeout=900)
+            
+            if success:
+                logger.info("✅ PoC Sprint completed successfully!")
+            else:
+                logger.warning("⚠️  PoC Sprint timed out or failed")
+            
+            # Step 5: Cleanup
+            logger.info("Step 5: Cleaning up MLNode...")
+            deployer.unregister_mlnode(node_id)
+            deployer.cleanup_mlnode(connection, node_id)
+            
+            logger.info("✅ Cleanup complete")
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error during PoC Sprint: {e}", exc_info=True)
+            return False
     
     def stop_gpu_instance(self, instance_id: int) -> bool:
         """Stop and destroy GPU instance"""
