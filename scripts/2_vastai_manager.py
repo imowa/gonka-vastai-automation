@@ -85,7 +85,7 @@ class VastAIManager:
         
         except requests.RequestException as e:
             logger.error(f"API request failed: {e}")
-            if hasattr(e.response, 'text'):
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
                 logger.error(f"Response: {e.response.text}")
             raise
     
@@ -240,49 +240,95 @@ class VastAIManager:
             logger.error(f"Failed to destroy instance: {e}")
             return False
     
-    def wait_for_ready(self, instance_id: int, timeout: int = 300) -> bool:
+    def wait_for_ready(self, instance_id: int, timeout: int = 600) -> bool:
         """
         Wait for instance to be ready
         
         Args:
             instance_id: Instance to wait for
-            timeout: Maximum time to wait in seconds
+            timeout: Maximum time to wait in seconds (default 10 minutes for large Docker images)
         
         Returns:
             True if instance is ready, False if timeout
         """
-        logger.info(f"Waiting for instance {instance_id} to be ready...")
+        logger.info(f"Waiting for instance {instance_id} to be ready (timeout: {timeout}s)...")
         start_time = time.time()
+        check_count = 0
+        actual_status = 'unknown'
         
         while time.time() - start_time < timeout:
-            status = self.get_instance_status(instance_id)
+            check_count += 1
             
-            if not status:
+            # Add delay between API calls to avoid rate limiting
+            if check_count > 1:
+                time.sleep(2)  # 2 second delay between checks
+            
+            response = self.get_instance_status(instance_id)
+            
+            if not response:
+                logger.warning(f"Check #{check_count}: No status response, retrying...")
                 time.sleep(10)
                 continue
             
-            actual_status = status.get('actual_status') or status.get('status_msg') or status.get('state', 'unknown')
-            logger.info(f"Instance status: {actual_status}")
+            # The API wraps instance data in an "instances" key
+            status = response.get('instances', {})
             
-            if actual_status == 'running':
+            if not status:
+                logger.warning(f"Check #{check_count}: Empty instances data, retrying...")
+                time.sleep(10)
+                continue
+            
+            # DEBUG: Print response structure (first 3 checks and every 10th)
+            if check_count <= 3 or check_count % 10 == 0:
+                logger.info(f"🔍 Check #{check_count} - Status Fields: {list(status.keys())[:15]}")
+                logger.info(f"🔍 Check #{check_count} - cur_state={status.get('cur_state')}, actual_status={status.get('actual_status')}")
+            
+            # Try multiple possible status fields - cur_state is the primary one
+            actual_status = (
+                status.get('cur_state') or 
+                status.get('actual_status') or 
+                status.get('status_msg') or 
+                status.get('state') or 
+                status.get('status') or 
+                status.get('container_status') or
+                status.get('machine_status') or
+                status.get('running') or
+                'unknown'
+            )
+            
+            if actual_status:
+                actual_status = str(actual_status).lower().strip()
+            else:
+                actual_status = 'unknown'
+            
+            elapsed = int(time.time() - start_time)
+            logger.info(f"Check #{check_count} ({elapsed}s): Instance status = {actual_status}")
+            
+            # Check for ready states (multiple variations)
+            if actual_status in ['running', 'active', 'ready', 'started', 'success', 'true', '1']:
                 logger.info(f"✅ Instance {instance_id} is ready!")
                 return True
             
-            if actual_status in ['failed', 'exited']:
-                logger.error(f"❌ Instance {instance_id} failed to start")
+            # Check for failure states
+            if actual_status in ['failed', 'exited', 'error', 'terminated', 'destroyed', 'false', '0']:
+                logger.error(f"❌ Instance {instance_id} failed with status: {actual_status}")
                 return False
             
+            # Still waiting...
             time.sleep(10)
         
-        logger.error(f"❌ Timeout waiting for instance {instance_id}")
+        # Timeout reached
+        logger.error(f"❌ Timeout waiting for instance {instance_id} after {timeout}s")
+        logger.error(f"Last status was: {actual_status}")
         return False
     
     def get_instance_cost(self, instance_id: int) -> Optional[float]:
         """Get total cost accumulated for an instance"""
         try:
-            status = self.get_instance_status(instance_id)
-            if status:
-                return status.get('total_cost', 0.0)
+            response = self.get_instance_status(instance_id)
+            if response:
+                instances_data = response.get('instances', {})
+                return instances_data.get('total_cost', 0.0)
             return None
         except Exception:
             return None
@@ -313,7 +359,8 @@ def test_connection():
         
         if instances:
             for inst in instances:
-                print(f"  - Instance {inst['id']}: {inst.get('actual_status', 'unknown')}")
+                status = inst.get('cur_state', inst.get('actual_status', inst.get('status', 'unknown')))
+                print(f"  - Instance {inst['id']}: {status}")
         
         return True
     
@@ -368,5 +415,3 @@ if __name__ == "__main__":
     print("  Tests Complete!")
     print("="*60)
     print("\n✅ Vast.ai Manager is ready!")
-    print("Next: I'll build Script 3 (PoC Scheduler)")
-# [Copy the entire script from the artifact above]

@@ -161,7 +161,7 @@ echo "Ready for PoC Sprint"
         logger.info(f"Instance {instance_id} created, waiting for ready state...")
         
         # Wait for instance to be ready
-        if not self.vastai.wait_for_ready(instance_id, timeout=300):
+        if not self.vastai.wait_for_ready(instance_id, timeout=600):
             logger.error(f"Instance {instance_id} failed to start")
             # Try to destroy failed instance
             self.vastai.destroy_instance(instance_id)
@@ -171,63 +171,65 @@ echo "Ready for PoC Sprint"
     
     def run_poc_sprint(self, instance_id: int) -> bool:
         """
-        Run the PoC Sprint on the GPU instance
+        Run PoC Sprint using remote vLLM on GPU
+        Network Node talks directly to remote vLLM (no local MLNode needed)
         
         Returns:
             True if successful, False otherwise
         """
-        logger.info(f"Running PoC Sprint on instance {instance_id}")
+        logger.info(f"Running PoC Sprint with remote vLLM on instance {instance_id}")
         
         try:
-            # Import MLNode deployer
-            spec = importlib.util.spec_from_file_location("mlnode_deployer", "scripts/5_mlnode_deployer.py")
-            deployer_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(deployer_module)
-            MLNodeDeployer = deployer_module.MLNodeDeployer
+            # Import remote vLLM manager
+            spec = importlib.util.spec_from_file_location("vllm_manager", "scripts/5_vllm_proxy_manager.py")
+            vllm_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(vllm_module)
+            RemoteVLLMManager = vllm_module.RemoteVLLMManager
             
-            deployer = MLNodeDeployer()
-            node_id = f"vastai-{instance_id}"
+            vllm_manager = RemoteVLLMManager()
             
-            # Step 1: Get SSH connection info
-            logger.info("Step 1: Getting SSH connection details...")
-            connection = deployer.get_instance_ssh_info(self.vastai, instance_id)
+            # Step 1: Get SSH connection to GPU
+            logger.info("Step 1: Connecting to GPU instance...")
+            ssh_info = vllm_manager.get_ssh_connection(self.vastai, instance_id)
             
-            if not connection:
-                logger.error("Failed to get SSH connection info")
+            if not ssh_info:
+                logger.error("Failed to get SSH connection")
                 return False
             
-            logger.info(f"✅ SSH: {connection.username}@{connection.host}:{connection.port}")
+            logger.info(f"✅ Connected: {ssh_info['host']}:{ssh_info['port']}")
             
-            # Step 2: Deploy MLNode on GPU instance
-            logger.info("Step 2: Deploying Gonka MLNode...")
-            if not deployer.deploy_mlnode(connection, node_id):
-                logger.error("Failed to deploy MLNode")
+            # Step 2: Start vLLM on remote GPU
+            logger.info("Step 2: Starting vLLM on remote GPU...")
+            vllm_url = vllm_manager.start_remote_vllm(ssh_info, instance_id)
+            
+            if not vllm_url:
+                logger.error("Failed to start vLLM")
                 return False
             
-            logger.info("✅ MLNode deployed")
+            logger.info(f"✅ vLLM ready at {vllm_url}")
             
-            # Step 3: Register MLNode with Network Node
-            logger.info("Step 3: Registering MLNode with Network Node...")
-            if not deployer.register_mlnode_with_network(connection, node_id):
-                logger.error("Failed to register MLNode")
-                deployer.cleanup_mlnode(connection, node_id)
+            # Step 3: Register remote vLLM as MLNode
+            logger.info("Step 3: Registering remote vLLM with Network Node...")
+            if not vllm_manager.register_remote_mlnode(vllm_url, instance_id):
+                logger.error("Failed to register remote MLNode")
+                vllm_manager.stop_remote_vllm(ssh_info)
                 return False
             
-            logger.info("✅ MLNode registered")
+            logger.info("✅ Remote MLNode registered")
             
-            # Step 4: Wait for PoC Sprint to complete
-            logger.info("Step 4: Monitoring PoC Sprint progress...")
-            success = deployer.wait_for_poc_completion(node_id, timeout=900)
+            # Step 4: Wait for PoC to complete
+            logger.info("Step 4: Monitoring PoC progress...")
+            success = vllm_manager.wait_for_poc_completion(timeout=900)
             
             if success:
-                logger.info("✅ PoC Sprint completed successfully!")
+                logger.info("✅ PoC Sprint completed!")
             else:
-                logger.warning("⚠️  PoC Sprint timed out or failed")
+                logger.warning("⚠️  PoC Sprint timed out")
             
             # Step 5: Cleanup
-            logger.info("Step 5: Cleaning up MLNode...")
-            deployer.unregister_mlnode(node_id)
-            deployer.cleanup_mlnode(connection, node_id)
+            logger.info("Step 5: Cleanup...")
+            vllm_manager.unregister_remote_mlnode(instance_id)
+            vllm_manager.stop_remote_vllm(ssh_info)
             
             logger.info("✅ Cleanup complete")
             return success
