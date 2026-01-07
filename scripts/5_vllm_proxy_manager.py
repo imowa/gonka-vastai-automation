@@ -11,6 +11,7 @@ import json
 import logging
 import paramiko
 import requests
+import urllib.parse
 from typing import Optional, Dict
 from dotenv import load_dotenv
 
@@ -52,7 +53,6 @@ class RemoteVLLMManager:
                 return None
             
             # Get SSH connection details from the instances object
-            # IMPORTANT: Use ssh_host (ssh3.vast.ai) NOT public_ipaddr!
             ssh_host = status.get('ssh_host')
             ssh_port = status.get('ssh_port', 22)
             
@@ -63,7 +63,6 @@ class RemoteVLLMManager:
                 logger.error(f"Available SSH fields:")
                 logger.error(f"  - ssh_host: {status.get('ssh_host')}")
                 logger.error(f"  - ssh_port: {status.get('ssh_port')}")
-                logger.error(f"  - public_ipaddr: {status.get('public_ipaddr')}")
                 return None
             
             return {
@@ -75,20 +74,18 @@ class RemoteVLLMManager:
             logger.error(f"Failed to get SSH info: {e}")
             return None
     
-    def wait_for_ssh_ready(self, ssh_info: Dict, max_wait: int = 600) -> bool:
+    def wait_for_ssh_ready(self, ssh_info: Dict, max_wait: int = 300) -> bool:
         """
         Wait for SSH to be ready on the remote instance
-        Account for 13GB+ Docker image download time
         
         Args:
             ssh_info: SSH connection details
-            max_wait: Maximum time to wait in seconds (default 10 minutes for large image)
+            max_wait: Maximum time to wait in seconds (default 5 minutes)
         
         Returns:
             True if SSH is ready
         """
         logger.info(f"Waiting for SSH to be ready at {ssh_info['host']}:{ssh_info['port']}...")
-        logger.info(f"This may take several minutes while Docker image (13GB+) is downloaded...")
         
         start_time = time.time()
         attempt = 0
@@ -106,22 +103,27 @@ class RemoteVLLMManager:
                     port=ssh_info['port'],
                     username=ssh_info['username'],
                     pkey=private_key,
-                    timeout=5  # Short timeout for probing
+                    timeout=10,
+                    banner_timeout=30
                 )
                 
-                # If we get here, SSH is ready
+                # Test SSH connection with a simple command
+                stdin, stdout, stderr = ssh.exec_command("echo 'SSH test successful'", timeout=5)
+                exit_code = stdout.channel.recv_exit_status()
+                
                 ssh.close()
-                logger.info(f"✅ SSH is ready (attempt #{attempt})")
-                return True
+                
+                if exit_code == 0:
+                    logger.info(f"✅ SSH is ready and working (attempt #{attempt})")
+                    return True
+                else:
+                    logger.warning(f"SSH connection established but command failed")
             
-            except (paramiko.ssh_exception.NoValidConnectionsError, 
-                    paramiko.ssh_exception.AuthenticationException,
-                    TimeoutError,
-                    Exception) as e:
+            except Exception as e:
                 elapsed = int(time.time() - start_time)
                 
-                if attempt % 12 == 0:  # Log every 60 seconds
-                    logger.info(f"SSH not ready yet ({elapsed}s elapsed, {(max_wait - elapsed)//60}m remaining)... Retrying")
+                if attempt % 6 == 0:  # Log every 30 seconds
+                    logger.info(f"SSH not ready yet ({elapsed}s elapsed)... Retrying")
                 
                 time.sleep(5)
         
@@ -144,7 +146,8 @@ class RemoteVLLMManager:
                 port=ssh_info['port'],
                 username=ssh_info['username'],
                 pkey=private_key,
-                timeout=10  # Increased timeout
+                timeout=15,
+                banner_timeout=30
             )
             
             logger.info(f"✅ SSH connected, executing: {command[:50]}...")
@@ -170,36 +173,63 @@ class RemoteVLLMManager:
         """
         logger.info(f"Starting vLLM on remote GPU...")
         
-        # Step 0: Wait for SSH to be ready (with extended timeout for Docker pull)
+        # Step 0: Wait for SSH to be ready
         logger.info("Step 0: Waiting for SSH to be ready...")
-        if not self.wait_for_ssh_ready(ssh_info, max_wait=600):  # 10 minutes for Docker download
+        if not self.wait_for_ssh_ready(ssh_info, max_wait=300):
             logger.error("SSH failed to be ready")
             return None
         
-        # Step 1: Check GPU
-        logger.info("Step 1: Checking GPU...")
+        # Step 1: Check GPU and system
+        logger.info("Step 1: Checking system...")
+        
+        # Fix SSH permissions if needed
+        fix_cmd = "chmod 600 /root/.ssh/authorized_keys && chmod 700 /root/.ssh && echo 'Permissions fixed'"
+        exit_code, stdout, stderr = self.ssh_execute(ssh_info, fix_cmd, timeout=30)
+        if exit_code == 0:
+            logger.info("✅ Fixed SSH permissions")
+        
+        # Check GPU
         exit_code, stdout, stderr = self.ssh_execute(ssh_info, "nvidia-smi")
         if exit_code != 0:
             logger.error(f"No GPU found: {stderr}")
             return None
         
         logger.info("✅ GPU detected")
-        logger.info(f"GPU Output:\n{stdout[:200]}")
+        logger.info(f"GPU Info:\n{stdout[:200]}...")
         
-        # Step 2: Check if vLLM is installed
-        logger.info("Step 2: Checking vLLM installation...")
+        # Step 2: Check Python and pip
+        logger.info("Step 2: Checking Python environment...")
+        
+        # Check Python version
+        exit_code, stdout, stderr = self.ssh_execute(ssh_info, "python3 --version", timeout=30)
+        logger.info(f"Python: {stdout.strip()}")
+        
+        # Check if vLLM is installed
         exit_code, stdout, stderr = self.ssh_execute(ssh_info, "python3 -m pip list | grep vllm", timeout=60)
         
         if exit_code != 0:
             logger.warning("vLLM not installed, attempting to install...")
+            # First update pip
+            self.ssh_execute(ssh_info, "python3 -m pip install --upgrade pip", timeout=120)
+            
+            # Install vLLM with specific version
             exit_code, stdout, stderr = self.ssh_execute(
                 ssh_info, 
-                "pip install vllm==0.5.0 --no-cache-dir",
+                "python3 -m pip install vllm==0.6.2 --no-cache-dir",
                 timeout=600
             )
             if exit_code != 0:
                 logger.error(f"Failed to install vLLM: {stderr}")
-                return None
+                # Try alternative installation
+                logger.info("Trying alternative installation method...")
+                exit_code, stdout, stderr = self.ssh_execute(
+                    ssh_info,
+                    "python3 -m pip install vllm --no-cache-dir",
+                    timeout=600
+                )
+                if exit_code != 0:
+                    logger.error(f"vLLM installation failed completely: {stderr}")
+                    return None
             logger.info("✅ vLLM installed")
         else:
             logger.info("✅ vLLM already installed")
@@ -207,49 +237,118 @@ class RemoteVLLMManager:
         # Step 3: Start vLLM server
         logger.info("Step 3: Starting vLLM server...")
         
-        vllm_command = f"""nohup python3 -m vllm.entrypoints.openai.api_server \\
-            --model {self.vllm_model} \\
-            --dtype auto \\
-            --port 8000 \\
-            --host 0.0.0.0 \\
-            --quantization fp8 \\
-            --gpu-memory-utilization 0.9 \\
-            > /tmp/vllm.log 2>&1 &
-        echo "vLLM started"
-        """
+        # First, kill any existing vLLM processes
+        self.ssh_execute(ssh_info, "pkill -f vllm.entrypoints || true", timeout=10)
         
-        exit_code, stdout, stderr = self.ssh_execute(ssh_info, vllm_command, timeout=30)
+        # Create a startup script
+        startup_script = f"""#!/bin/bash
+cd /tmp
+cat > start_vllm.sh << 'EOF'
+#!/bin/bash
+export PATH=/usr/local/bin:/usr/bin:/bin
+export PYTHONPATH=/usr/local/lib/python3.10/dist-packages
+
+echo "Starting vLLM with model: {self.vllm_model}"
+python3 -m vllm.entrypoints.openai.api_server \\
+    --model {self.vllm_model} \\
+    --dtype auto \\
+    --port 8000 \\
+    --host 0.0.0.0 \\
+    --quantization fp8 \\
+    --gpu-memory-utilization 0.9 \\
+    --max-num-seqs 256 \\
+    --max-model-len 4096 \\
+    > /tmp/vllm.log 2>&1 &
+    
+VLLM_PID=$!
+echo "vLLM started with PID: $VLLM_PID"
+echo $VLLM_PID > /tmp/vllm.pid
+EOF
+
+chmod +x start_vllm.sh
+nohup ./start_vllm.sh > /tmp/vllm_startup.log 2>&1 &
+echo "vLLM startup script launched"
+"""
+        
+        exit_code, stdout, stderr = self.ssh_execute(ssh_info, startup_script, timeout=60)
         
         if exit_code != 0:
             logger.error(f"Failed to start vLLM: {stderr}")
             return None
         
-        logger.info("✅ vLLM starting...")
+        logger.info("✅ vLLM startup initiated")
         
         # Step 4: Wait for vLLM to be ready
-        vllm_url = f"http://{ssh_info['host']}:8000"
-        logger.info(f"Step 4: Waiting for vLLM at {vllm_url}...")
+        logger.info("Step 4: Waiting for vLLM to start...")
         
-        for i in range(60):  # Wait up to 5 minutes
+        # Check if vLLM process is running
+        max_attempts = 120  # 10 minutes (120 * 5s)
+        vllm_ready = False
+        
+        for i in range(max_attempts):
             time.sleep(5)
-            try:
-                response = requests.get(f"{vllm_url}/v1/models", timeout=5)
-                if response.status_code == 200:
-                    logger.info("✅ vLLM is ready!")
-                    return vllm_url
-            except Exception as e:
-                if i % 6 == 0:  # Log every 30 seconds
-                    logger.info(f"Waiting for vLLM... ({i*5}s elapsed)")
+            
+            # Check if vLLM process is running
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info, 
+                "ps aux | grep vllm.entrypoints | grep -v grep || echo 'Not running'",
+                timeout=10
+            )
+            
+            if "Not running" not in stdout and "python3 -m vllm.entrypoints" in stdout:
+                logger.info("✅ vLLM process is running")
+                
+                # Check if vLLM API is responding
+                exit_code, stdout, stderr = self.ssh_execute(
+                    ssh_info,
+                    "curl -s -f http://localhost:8000/v1/models || echo 'API not ready'",
+                    timeout=10
+                )
+                
+                if exit_code == 0 and "API not ready" not in stdout:
+                    logger.info("✅ vLLM API is responding!")
+                    vllm_ready = True
+                    break
+            
+            if i % 12 == 0:  # Log every 60 seconds
+                elapsed = i * 5
+                remaining = (max_attempts - i) * 5 // 60
+                logger.info(f"Waiting for vLLM... ({elapsed}s elapsed, ~{remaining}m remaining)")
+                
+                # Check logs for errors
+                exit_code, stdout, stderr = self.ssh_execute(
+                    ssh_info,
+                    "tail -20 /tmp/vllm.log | tail -5",
+                    timeout=10
+                )
+                if stdout.strip():
+                    logger.info(f"Recent vLLM logs: {stdout}")
         
-        logger.error("vLLM failed to start in time")
-        return None
+        if not vllm_ready:
+            logger.error("vLLM failed to start in time")
+            
+            # Get error logs
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info,
+                "tail -50 /tmp/vllm.log",
+                timeout=10
+            )
+            logger.error(f"vLLM error logs:\n{stdout}")
+            
+            return None
+        
+        # Return the SSH gateway URL
+        vllm_gateway = f"http://{ssh_info['host']}:{ssh_info['port']}"
+        logger.info(f"✅ vLLM is ready at {vllm_gateway} (via SSH tunnel)")
+        
+        return vllm_gateway
     
-    def register_remote_mlnode(self, vllm_url: str, instance_id: int) -> bool:
+    def register_remote_mlnode(self, vllm_gateway: str, instance_id: int) -> bool:
         """
         Register remote vLLM as MLNode with Network Node
         
         Args:
-            vllm_url: URL of remote vLLM server
+            vllm_gateway: SSH gateway URL (ssh_host:ssh_port)
             instance_id: Vast.ai instance ID (for unique node ID)
         
         Returns:
@@ -259,22 +358,28 @@ class RemoteVLLMManager:
         
         node_id = f"vastai-{instance_id}"
         
-        # Extract host from URL
-        import urllib.parse
-        parsed = urllib.parse.urlparse(vllm_url)
-        vllm_host = parsed.hostname
-        vllm_port = parsed.port or 8000
+        # Parse the SSH gateway URL
+        parsed = urllib.parse.urlparse(vllm_gateway)
+        ssh_host = parsed.hostname
+        ssh_port = parsed.port or 22
         
+        # Network Node needs to know this is a remote vLLM via SSH
         payload = {
             "id": node_id,
-            "host": f"http://{vllm_host}",
-            "inference_port": vllm_port,
-            "poc_port": vllm_port,
-            "max_concurrent": 500,
+            "host": f"http://{ssh_host}",
+            "inference_port": ssh_port,
+            "poc_port": ssh_port,
+            "max_concurrent": 100,
             "models": {
                 self.vllm_model: {
                     "args": ["--quantization", "fp8", "--gpu-memory-utilization", "0.9"]
                 }
+            },
+            "metadata": {
+                "remote": True,
+                "ssh_tunnel": True,
+                "vllm_port": 8000,
+                "instance_id": instance_id
             }
         }
         
@@ -290,8 +395,9 @@ class RemoteVLLMManager:
             
             response.raise_for_status()
             
+            result = response.json()
             logger.info(f"✅ Remote MLNode registered: {node_id}")
-            logger.info(f"Response: {response.json()}")
+            logger.info(f"Response: {result}")
             return True
         
         except requests.RequestException as e:
@@ -323,13 +429,51 @@ class RemoteVLLMManager:
             logger.error(f"Failed to unregister: {e}")
             return False
     
-    def configure_mlnode_proxy(self, vllm_url: str) -> bool:
-        """
-        No longer needed - Network Node talks directly to remote vLLM
-        Kept for backward compatibility
-        """
-        logger.info(f"Network Node will connect directly to {vllm_url}")
-        return True
+    def check_vllm_status(self, ssh_info: Dict) -> Dict:
+        """Check vLLM status on remote instance"""
+        status = {
+            "gpu_available": False,
+            "vllm_running": False,
+            "vllm_responding": False,
+            "logs": ""
+        }
+        
+        try:
+            # Check GPU
+            exit_code, stdout, stderr = self.ssh_execute(ssh_info, "nvidia-smi", timeout=30)
+            if exit_code == 0:
+                status["gpu_available"] = True
+            
+            # Check vLLM process
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info, 
+                "ps aux | grep vllm.entrypoints | grep -v grep",
+                timeout=10
+            )
+            if exit_code == 0 and "python3 -m vllm.entrypoints" in stdout:
+                status["vllm_running"] = True
+            
+            # Check vLLM API
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info,
+                "curl -s http://localhost:8000/v1/health || echo 'Not healthy'",
+                timeout=10
+            )
+            if exit_code == 0 and "Not healthy" not in stdout:
+                status["vllm_responding"] = True
+            
+            # Get recent logs
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info,
+                "tail -20 /tmp/vllm.log 2>/dev/null || echo 'No logs'",
+                timeout=10
+            )
+            status["logs"] = stdout.strip()
+            
+        except Exception as e:
+            logger.error(f"Error checking vLLM status: {e}")
+        
+        return status
     
     def stop_remote_vllm(self, ssh_info: Dict):
         """Stop vLLM on remote GPU"""
@@ -338,22 +482,27 @@ class RemoteVLLMManager:
         try:
             # Kill vLLM process
             self.ssh_execute(ssh_info, "pkill -f vllm.entrypoints", timeout=10)
+            self.ssh_execute(ssh_info, "pkill -f start_vllm.sh", timeout=10)
+            
+            # Clean up PID file
+            self.ssh_execute(ssh_info, "rm -f /tmp/vllm.pid", timeout=5)
             
             logger.info("✅ vLLM stopped")
         except Exception as e:
             logger.warning(f"Error stopping vLLM: {e}")
     
-    def wait_for_poc_completion(self, timeout: int = 900) -> bool:
+    def wait_for_poc_completion(self, instance_id: int, timeout: int = 900) -> bool:
         """
         Monitor PoC progress via local MLNode API
         
         Returns:
             True if PoC completed successfully
         """
-        logger.info("Monitoring PoC progress...")
+        logger.info(f"Monitoring PoC progress for instance {instance_id}...")
         
         start_time = time.time()
         check_count = 0
+        node_id = f"vastai-{instance_id}"
         
         while time.time() - start_time < timeout:
             check_count += 1
@@ -368,23 +517,25 @@ class RemoteVLLMManager:
                     nodes = response.json()
                     
                     for node_data in nodes:
-                        state = node_data.get('state', {})
-                        poc_status = state.get('poc_current_status', 'UNKNOWN')
-                        
-                        if check_count % 10 == 0:
-                            logger.info(f"PoC Status: {poc_status}")
-                        
-                        if poc_status == 'IDLE':
-                            logger.info("✅ PoC completed!")
-                            return True
+                        node_info = node_data.get('node', {})
+                        if node_info.get('id') == node_id:
+                            state = node_data.get('state', {})
+                            poc_status = state.get('poc_current_status', 'UNKNOWN')
+                            
+                            if check_count % 5 == 0:
+                                logger.info(f"PoC Status for {node_id}: {poc_status}")
+                            
+                            if poc_status == 'IDLE':
+                                logger.info("✅ PoC completed!")
+                                return True
             
             except Exception as e:
-                if check_count % 10 == 0:
+                if check_count % 5 == 0:
                     logger.error(f"Error checking status: {e}")
             
             time.sleep(30)
         
-        logger.warning("PoC monitoring timed out")
+        logger.warning(f"PoC monitoring timed out after {timeout}s")
         return False
 
 
@@ -415,10 +566,10 @@ def test_manager():
             if response.status_code == 200:
                 nodes = response.json()
                 print(f"  ✅ Network Node API accessible")
-                print(f"  Local MLNodes: {len(nodes)}")
+                print(f"  Registered MLNodes: {len(nodes)}")
                 
                 if len(nodes) > 0:
-                    print(f"\n  Registered MLNode:")
+                    print(f"\n  Registered MLNodes:")
                     for node in nodes:
                         node_info = node.get('node', {})
                         print(f"    ID: {node_info.get('id')}")
