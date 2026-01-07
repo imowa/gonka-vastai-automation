@@ -1,0 +1,65 @@
+
+2026-01-07 19:11:09,901 - INFO - ✅ SSH connected, executing: tail -20 /tmp/vllm.log | tail -5...
+2026-01-07 19:11:09,979 - INFO - Recent vLLM logs: INFO 01-07 11:10:16 [topk_topp_sampler.py:49] Using FlashInfer for top-p & top-k sampling.
+INFO 01-07 11:10:16 [gpu_model_runner.py:1595] Starting to load model Qwen/Qwen2.5-7B-Instruct...
+INFO 01-07 11:10:17 [gpu_model_runner.py:1600] Loading model from scratch...
+INFO 01-07 11:10:17 [cuda.py:252] Using Flash Attention backend on V1 engine.
+INFO 01-07 11:10:17 [weight_utils.py:292] Using model weights format ['*.safetensors']
+INFO 01-07 11:12:18 [gpu_model_runner.py:1624] Model loading took 8.1377 GiB and 121.319412 seconds
+INFO 01-07 11:12:27 [backends.py:462] Using cache directory: /root/.cache/vllm/torch_compile_cache/28cf30d54b/rank_0_0 for vLLM's torch.compile
+INFO 01-07 11:12:27 [backends.py:472] Dynamo bytecode transform time: 8.00 s
+INFO 01-07 11:12:30 [backends.py:161] Cache the graph of shape None for later use 
+ warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torch/utils/cpp_extension.py:2356: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+2026-01-07 19:14:26,979 - INFO - Connected (version 2.0, client OpenSSH_8.9p1)
+2026-01-07 19:14:27,213 - INFO - Auth banner: b'Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.\nHave fun!\n'
+2026-01-07 19:14:27,214 - INFO - Authentication (publickey) successful!
+2026-01-07 19:14:27,214 - INFO - ✅ SSH connected, executing: ps aux | grep vllm.entrypoints | grep -v grep || e...
+2026-01-07 19:14:27,326 - INFO - ✅ vLLM process is running
+2026-01-07 19:14:27,703 - INFO - SSH connecting to ssh5.vast.ai:16342...
+2026-01-07 19:14:27,752 - INFO - Connected (version 2.0, client OpenSSH_8.9p1)
+2026-01-07 19:14:27,980 - INFO - Auth banner: b'Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.\nHave fun!\n'
+2026-01-07 19:14:27,981 - INFO - Authentication (publickey) successful!
+2026-01-07 19:14:27,981 - INFO - ✅ SSH connected, executing: curl -s -f http://localhost:8000/v1/models || echo...
+2026-01-07 19:14:28,103 - INFO - ✅ vLLM API is responding!
+2026-01-07 19:14:28,103 - INFO - ✅ vLLM is ready at http://ssh5.vast.ai:16342 (via SSH tunnel)
+2026-01-07 19:14:28,103 - INFO - ✅ vLLM ready at http://ssh5.vast.ai:16342
+2026-01-07 19:14:28,103 - INFO - Step 3: Registering remote vLLM with Network Node...
+2026-01-07 19:14:28,103 - INFO - Registering remote vLLM as MLNode...
+2026-01-07 19:14:28,103 - INFO - Sending registration payload: {
+  "id": "vastai-29736343",
+  "host": "http://ssh5.vast.ai",
+  "inference_port": 16342,
+  "poc_port": 16342,
+  "max_concurrent": 100,
+  "models": {
+    "Qwen/Qwen2.5-7B-Instruct": {
+      "args": [
+        "--quantization",
+        "fp8",
+        "--gpu-memory-utilization",
+        "0.9"
+      ]
+    }
+  },
+  "metadata": {
+    "remote": true,
+    "ssh_tunnel": true,
+    "vllm_port": 8000,
+    "instance_id": 29736343
+  }
+}
+2026-01-07 19:14:28,128 - INFO - ✅ Remote MLNode registered: vastai-29736343
+2026-01-07 19:14:28,128 - INFO - Response: {'host': 'http://ssh5.vast.ai', 'inference_segment': '', 'inference_port': 16342, 'poc_segment': '', 'poc_port': 16342, 'models': {'Qwen/Qwen2.5-7B-Instruct': {'args': ['--quantization', 'fp8', '--gpu-memory-utilization', '0.9']}}, 'id': 'vastai-29736343', 'max_concurrent': 100, 'hardware': None}
+2026-01-07 19:14:28,128 - INFO - ✅ Remote MLNode registered
+2026-01-07 19:14:28,128 - INFO - Step 4: Monitoring PoC progress...
+2026-01-07 19:14:28,128 - ERROR - Error during PoC Sprint: RemoteVLLMManager.wait_for_poc_completion() missing 1 required positional argument: 'instance_id'
+Traceback (most recent call last):
+  File "/root/gonka-vastai-automation/scripts/3_poc_scheduler.py", line 222, in run_poc_sprint
+    success = vllm_manager.wait_for_poc_completion(timeout=900)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: RemoteVLLMManager.wait_for_poc_completion() missing 1 required positional argument: 'instance_id'
+
+⚠️  Test completed with warnings
