@@ -200,17 +200,17 @@ echo "Ready for PoC Sprint"
             
             # Step 2: Start vLLM on remote GPU
             logger.info("Step 2: Starting vLLM on remote GPU...")
-            vllm_url = vllm_manager.start_remote_vllm(ssh_info, instance_id)
+            vllm_host = vllm_manager.start_remote_vllm(ssh_info, instance_id)
             
-            if not vllm_url:
+            if not vllm_host:
                 logger.error("Failed to start vLLM")
                 return False
             
-            logger.info(f"✅ vLLM ready at {vllm_url}")
+            logger.info(f"✅ vLLM ready at {vllm_host}")
             
             # Step 3: Register remote vLLM as MLNode
             logger.info("Step 3: Registering remote vLLM with Network Node...")
-            if not vllm_manager.register_remote_mlnode(vllm_url, instance_id):
+            if not vllm_manager.register_remote_mlnode(vllm_host, instance_id):
                 logger.error("Failed to register remote MLNode")
                 vllm_manager.stop_remote_vllm(ssh_info)
                 return False
