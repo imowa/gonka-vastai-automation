@@ -6,6 +6,7 @@ Implements all required ML Node API endpoints
 
 import os
 import json
+import sys
 import httpx
 from fastapi import FastAPI, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -17,7 +18,7 @@ from email.message import EmailMessage
 
 # Configuration
 NODE_ID = os.getenv("MLNODE_ID", os.getenv("NODE_ID", "hyperbolic-proxy-1"))
-VPS_IP = os.getenv("VPS_IP", "198.74.55.121")
+VPS_IP = os.getenv("VPS_IP")
 PROXY_PORT = int(os.getenv("HYPERBOLIC_PROXY_PORT", os.getenv("PROXY_PORT", "8080")))
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 MODEL_NAME = os.getenv(
@@ -25,7 +26,7 @@ MODEL_NAME = os.getenv(
     os.getenv("MLNODE_MODEL", os.getenv("MODEL_NAME", "Qwen/QwQ-32B")),
 )
 HYPERBOLIC_BASE_URL = os.getenv("HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz")
-GONKA_ADMIN_API = os.getenv("GONKA_ADMIN_API_URL", os.getenv("GONKA_ADMIN_API", "http://localhost:9200"))
+GONKA_ADMIN_API = os.getenv("GONKA_ADMIN_API_URL", os.getenv("GONKA_ADMIN_API"))
 INFERENCE_SEGMENT = os.getenv("INFERENCE_SEGMENT", "/v1")
 POC_SEGMENT = os.getenv("POC_SEGMENT", "/api/v1")
 HARDWARE_TYPE = os.getenv("HARDWARE_TYPE", "Hyperbolic-API")
@@ -38,6 +39,25 @@ SMTP_PORT = int(os.getenv("ALERT_SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("ALERT_SMTP_USERNAME")
 SMTP_PASSWORD = os.getenv("ALERT_SMTP_PASSWORD")
 SMTP_FROM = os.getenv("ALERT_SMTP_FROM", ALERT_EMAIL)
+
+
+def validate_required_env() -> None:
+    required = {
+        "HYPERBOLIC_API_KEY": HYPERBOLIC_API_KEY,
+        "VPS_IP": VPS_IP,
+        "GONKA_ADMIN_API_URL": GONKA_ADMIN_API,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        missing_list = ", ".join(missing)
+        print(
+            "❌ Missing required environment variables: "
+            f"{missing_list}. Please set them before starting the proxy."
+        )
+        sys.exit(1)
+
+
+validate_required_env()
 
 # Node state management
 class NodeState:
