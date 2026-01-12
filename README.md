@@ -70,7 +70,7 @@ set your keys. Example:
 # Hyperbolic API (inference)
 HYPERBOLIC_API_KEY=your_hyperbolic_api_key_here
 HYPERBOLIC_MODEL=Qwen/QwQ-32B
-HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz
+HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz/v1
 HYPERBOLIC_PROXY_PORT=8080
 
 # Vast.ai (PoC rentals)
