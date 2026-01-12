@@ -11,6 +11,9 @@ from fastapi import FastAPI, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 from datetime import datetime
+import asyncio
+import smtplib
+from email.message import EmailMessage
 
 # Configuration
 NODE_ID = os.getenv("MLNODE_ID", os.getenv("NODE_ID", "hyperbolic-proxy-1"))
@@ -27,6 +30,14 @@ INFERENCE_SEGMENT = os.getenv("INFERENCE_SEGMENT", "/v1")
 POC_SEGMENT = os.getenv("POC_SEGMENT", "/api/v1")
 HARDWARE_TYPE = os.getenv("HARDWARE_TYPE", "Hyperbolic-API")
 HARDWARE_COUNT = int(os.getenv("HARDWARE_COUNT", "1"))
+ENABLE_ALERTS = os.getenv("ENABLE_ALERTS", "false").lower() in {"1", "true", "yes", "on"}
+ALERT_EMAIL = os.getenv("ALERT_EMAIL")
+ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL")
+SMTP_HOST = os.getenv("ALERT_SMTP_HOST")
+SMTP_PORT = int(os.getenv("ALERT_SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("ALERT_SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("ALERT_SMTP_PASSWORD")
+SMTP_FROM = os.getenv("ALERT_SMTP_FROM", ALERT_EMAIL)
 
 # Node state management
 class NodeState:
@@ -55,6 +66,54 @@ def normalize_hyperbolic_base_url(raw_url: str) -> str:
 
 
 HYPERBOLIC_BASE_URL = normalize_hyperbolic_base_url(HYPERBOLIC_BASE_URL)
+
+
+async def _send_webhook_alert(payload: dict) -> None:
+    if not ALERT_WEBHOOK_URL:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(ALERT_WEBHOOK_URL, json=payload)
+    except Exception as exc:
+        print(f"⚠️ Failed to send alert webhook: {exc}")
+
+
+def _send_email_alert_sync(subject: str, body: str) -> None:
+    if not (ALERT_EMAIL and SMTP_HOST and SMTP_FROM):
+        return
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = SMTP_FROM
+    message["To"] = ALERT_EMAIL
+    message.set_content(body)
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+        server.starttls()
+        if SMTP_USERNAME and SMTP_PASSWORD:
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(message)
+
+
+async def send_alert(title: str, message: str, details: dict | None = None) -> None:
+    if not ENABLE_ALERTS:
+        return
+
+    payload = {
+        "title": title,
+        "message": message,
+        "details": details or {},
+        "node_id": NODE_ID,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    await _send_webhook_alert(payload)
+
+    if ALERT_EMAIL and SMTP_HOST:
+        body = json.dumps(payload, indent=2)
+        try:
+            await asyncio.to_thread(_send_email_alert_sync, title, body)
+        except Exception as exc:
+            print(f"⚠️ Failed to send alert email: {exc}")
 
 # ============================================================================
 # Gonka ML Node Required Endpoints
@@ -341,6 +400,21 @@ async def chat_completions(request: Request, version: str | None = None):
                         json=body,
                         headers=headers
                     ) as response:
+                        if response.status_code >= 500:
+                            error_text = await response.aread()
+                            await send_alert(
+                                "Hyperbolic API 5xx error",
+                                "Received 5xx response during streaming request.",
+                                {
+                                    "status_code": response.status_code,
+                                    "response": error_text.decode()
+                                }
+                            )
+                            raise HTTPException(
+                                status_code=response.status_code,
+                                detail=f"Hyperbolic API error: {error_text.decode()}"
+                            )
+
                         if response.status_code != 200:
                             error_text = await response.aread()
                             raise HTTPException(
@@ -363,6 +437,15 @@ async def chat_completions(request: Request, version: str | None = None):
                     headers=headers
                 )
                 
+                if response.status_code >= 500:
+                    await send_alert(
+                        "Hyperbolic API 5xx error",
+                        "Received 5xx response from Hyperbolic API.",
+                        {
+                            "status_code": response.status_code,
+                            "response": response.text
+                        }
+                    )
                 if response.status_code != 200:
                     raise HTTPException(
                         status_code=response.status_code,
@@ -410,6 +493,11 @@ async def register_with_gonka():
     preflight_ok = await preflight_self_check()
     if not preflight_ok:
         print("⚠️ Skipping registration because preflight checks failed.")
+        await send_alert(
+            "Gonka registration skipped",
+            "Preflight checks failed; registration was skipped.",
+            {"admin_api": GONKA_ADMIN_API, "proxy_port": PROXY_PORT}
+        )
         return False
 
     registration_data = {
@@ -447,10 +535,20 @@ async def register_with_gonka():
             else:
                 print(f"❌ Registration failed: {response.status_code}")
                 print(f"   Response: {response.text}")
+                await send_alert(
+                    "Gonka registration failed",
+                    "Non-200 response when registering proxy.",
+                    {"status_code": response.status_code, "response": response.text}
+                )
                 return False
     
     except Exception as e:
         print(f"❌ Registration error: {str(e)}")
+        await send_alert(
+            "Gonka registration error",
+            "Exception while registering proxy.",
+            {"error": str(e)}
+        )
         return False
 
 # ============================================================================
