@@ -63,6 +63,13 @@ HYPERBOLIC_BASE_URL = normalize_hyperbolic_base_url(HYPERBOLIC_BASE_URL)
 # Gonka ML Node Required Endpoints
 # ============================================================================
 
+@app.middleware("http")
+async def normalize_duplicate_api_path(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if "/api/v1/api/v1" in path:
+        request.scope["path"] = path.replace("/api/v1/api/v1", "/api/v1", 1)
+    return await call_next(request)
+
 @app.get("/health")
 @app.get("/api/v1/health")
 @app.get("/{version}/health")
