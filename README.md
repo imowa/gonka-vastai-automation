@@ -83,6 +83,16 @@ VASTAI_DISK_SIZE=50
 
 # Gonka admin API
 GONKA_ADMIN_API_URL=http://localhost:9200
+
+# Alerts (optional)
+ENABLE_ALERTS=true
+ALERT_EMAIL=alerts@example.com
+ALERT_WEBHOOK_URL=https://hooks.example.com/gonka
+ALERT_SMTP_HOST=smtp.example.com
+ALERT_SMTP_PORT=587
+ALERT_SMTP_USERNAME=alerts@example.com
+ALERT_SMTP_PASSWORD=your_smtp_password
+ALERT_SMTP_FROM=alerts@example.com
 ```
 
 ### Step 3: Start Hyperbolic inference proxy
@@ -107,6 +117,11 @@ Default settings (override via environment variables):
 - `POC_SEGMENT` (default: `/api/v1`)
 - `HARDWARE_TYPE` (default: `Hyperbolic-API`)
 - `HARDWARE_COUNT` (default: `1`)
+- `ENABLE_ALERTS` (default: `false`)
+- `ALERT_EMAIL` (optional; requires SMTP settings)
+- `ALERT_WEBHOOK_URL` (optional)
+- `ALERT_SMTP_HOST`, `ALERT_SMTP_PORT`, `ALERT_SMTP_USERNAME`,
+  `ALERT_SMTP_PASSWORD`, `ALERT_SMTP_FROM` (optional for email alerts)
 
 The proxy also accepts version-prefixed paths (for example: `/v3.0.8/api/v1/*`
 or `/v3.0.8/v1/chat/completions`) to align with the network node URL builder.
