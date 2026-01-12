@@ -73,6 +73,7 @@ async def normalize_duplicate_api_path(request: Request, call_next):
 @app.get("/health")
 @app.get("/api/v1/health")
 @app.get("/{version}/health")
+@app.get("/{version}/v1/health")
 @app.get("/{version}/api/v1/health")
 @app.get("/v3.0.8/api/v1/health")
 @app.get("/v3.0.8/health")
