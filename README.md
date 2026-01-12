@@ -67,12 +67,8 @@ Create `config/.env` (use `config/.env.example` as a template) and
 set your keys. Example:
 
 ```bash
-# Required for the Hyperbolic proxy
-HYPERBOLIC_API_KEY=your_hyperbolic_api_key_here
-VPS_IP=your_vps_public_ip
-GONKA_ADMIN_API_URL=http://localhost:9200
-
 # Hyperbolic API (inference)
+HYPERBOLIC_API_KEY=your_hyperbolic_api_key_here
 HYPERBOLIC_MODEL=Qwen/QwQ-32B
 HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz/v1
 HYPERBOLIC_PROXY_PORT=8080
@@ -87,22 +83,12 @@ VASTAI_DISK_SIZE=50
 
 # Gonka admin API
 GONKA_ADMIN_API_URL=http://localhost:9200
-
-# Alerts (optional)
-ENABLE_ALERTS=true
-ALERT_EMAIL=alerts@example.com
-ALERT_WEBHOOK_URL=https://hooks.example.com/gonka
-ALERT_SMTP_HOST=smtp.example.com
-ALERT_SMTP_PORT=587
-ALERT_SMTP_USERNAME=alerts@example.com
-ALERT_SMTP_PASSWORD=your_smtp_password
-ALERT_SMTP_FROM=alerts@example.com
 ```
 
 ### Step 3: Start Hyperbolic inference proxy
 
 This runs on your VPS (no GPU required) and registers itself with the Gonka
-admin API.
+admin API. It automatically loads `config/.env` if present.
 
 ```bash
 source venv/bin/activate
@@ -111,35 +97,19 @@ python3 scripts/hyperbolic_proxy.py
 
 Default settings (override via environment variables):
 - `MLNODE_ID` or `NODE_ID` (default: `hyperbolic-proxy-1`)
-- `VPS_IP` (required)
+- `VPS_IP` (default: `198.74.55.121`)
 - `HYPERBOLIC_PROXY_PORT` or `PROXY_PORT` (default: `8080`)
 - `HYPERBOLIC_API_KEY` (required)
 - `HYPERBOLIC_MODEL`, `MLNODE_MODEL`, or `MODEL_NAME` (default: `Qwen/QwQ-32B`)
 - `HYPERBOLIC_BASE_URL` (default: `https://api.hyperbolic.xyz`, accepts `/v1`)
-- `GONKA_ADMIN_API_URL` (required)
+- `GONKA_ADMIN_API_URL` (default: `http://localhost:9200`)
 - `INFERENCE_SEGMENT` (default: `/v1`)
 - `POC_SEGMENT` (default: `/api/v1`)
 - `HARDWARE_TYPE` (default: `Hyperbolic-API`)
 - `HARDWARE_COUNT` (default: `1`)
-- `ENABLE_ALERTS` (default: `false`)
-- `ALERT_EMAIL` (optional; requires SMTP settings)
-- `ALERT_WEBHOOK_URL` (optional)
-- `ALERT_SMTP_HOST`, `ALERT_SMTP_PORT`, `ALERT_SMTP_USERNAME`,
-  `ALERT_SMTP_PASSWORD`, `ALERT_SMTP_FROM` (optional for email alerts)
 
 The proxy also accepts version-prefixed paths (for example: `/v3.0.8/api/v1/*`
 or `/v3.0.8/v1/chat/completions`) to align with the network node URL builder.
-
-### Firewall and health checks
-
-The proxy must be reachable on `HYPERBOLIC_PROXY_PORT` (default `8080`). Ensure
-your VPS firewall/security group allows inbound TCP traffic to that port from
-the Gonka admin node and that the VPS can reach its own public `VPS_IP` on the
-same port.
-
-Expected health endpoints (replace `<VPS_IP>` and `<PORT>` as needed):
-- `http://<VPS_IP>:<PORT>/health`
-- `http://<VPS_IP>:<PORT>/api/v1/state`
 
 ### Step 4: Start PoC scheduler (Vast.ai)
 

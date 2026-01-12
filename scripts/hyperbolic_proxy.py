@@ -6,19 +6,18 @@ Implements all required ML Node API endpoints
 
 import os
 import json
-import sys
 import httpx
 from fastapi import FastAPI, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 from datetime import datetime
-import asyncio
-import smtplib
-from email.message import EmailMessage
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
 
 # Configuration
 NODE_ID = os.getenv("MLNODE_ID", os.getenv("NODE_ID", "hyperbolic-proxy-1"))
-VPS_IP = os.getenv("VPS_IP")
+VPS_IP = os.getenv("VPS_IP", "198.74.55.121")
 PROXY_PORT = int(os.getenv("HYPERBOLIC_PROXY_PORT", os.getenv("PROXY_PORT", "8080")))
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 MODEL_NAME = os.getenv(
@@ -26,38 +25,11 @@ MODEL_NAME = os.getenv(
     os.getenv("MLNODE_MODEL", os.getenv("MODEL_NAME", "Qwen/QwQ-32B")),
 )
 HYPERBOLIC_BASE_URL = os.getenv("HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz")
-GONKA_ADMIN_API = os.getenv("GONKA_ADMIN_API_URL", os.getenv("GONKA_ADMIN_API"))
+GONKA_ADMIN_API = os.getenv("GONKA_ADMIN_API_URL", os.getenv("GONKA_ADMIN_API", "http://localhost:9200"))
 INFERENCE_SEGMENT = os.getenv("INFERENCE_SEGMENT", "/v1")
 POC_SEGMENT = os.getenv("POC_SEGMENT", "/api/v1")
 HARDWARE_TYPE = os.getenv("HARDWARE_TYPE", "Hyperbolic-API")
 HARDWARE_COUNT = int(os.getenv("HARDWARE_COUNT", "1"))
-ENABLE_ALERTS = os.getenv("ENABLE_ALERTS", "false").lower() in {"1", "true", "yes", "on"}
-ALERT_EMAIL = os.getenv("ALERT_EMAIL")
-ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL")
-SMTP_HOST = os.getenv("ALERT_SMTP_HOST")
-SMTP_PORT = int(os.getenv("ALERT_SMTP_PORT", "587"))
-SMTP_USERNAME = os.getenv("ALERT_SMTP_USERNAME")
-SMTP_PASSWORD = os.getenv("ALERT_SMTP_PASSWORD")
-SMTP_FROM = os.getenv("ALERT_SMTP_FROM", ALERT_EMAIL)
-
-
-def validate_required_env() -> None:
-    required = {
-        "HYPERBOLIC_API_KEY": HYPERBOLIC_API_KEY,
-        "VPS_IP": VPS_IP,
-        "GONKA_ADMIN_API_URL": GONKA_ADMIN_API,
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        missing_list = ", ".join(missing)
-        print(
-            "❌ Missing required environment variables: "
-            f"{missing_list}. Please set them before starting the proxy."
-        )
-        sys.exit(1)
-
-
-validate_required_env()
 
 # Node state management
 class NodeState:
@@ -86,54 +58,6 @@ def normalize_hyperbolic_base_url(raw_url: str) -> str:
 
 
 HYPERBOLIC_BASE_URL = normalize_hyperbolic_base_url(HYPERBOLIC_BASE_URL)
-
-
-async def _send_webhook_alert(payload: dict) -> None:
-    if not ALERT_WEBHOOK_URL:
-        return
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(ALERT_WEBHOOK_URL, json=payload)
-    except Exception as exc:
-        print(f"⚠️ Failed to send alert webhook: {exc}")
-
-
-def _send_email_alert_sync(subject: str, body: str) -> None:
-    if not (ALERT_EMAIL and SMTP_HOST and SMTP_FROM):
-        return
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = SMTP_FROM
-    message["To"] = ALERT_EMAIL
-    message.set_content(body)
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-        server.starttls()
-        if SMTP_USERNAME and SMTP_PASSWORD:
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        server.send_message(message)
-
-
-async def send_alert(title: str, message: str, details: dict | None = None) -> None:
-    if not ENABLE_ALERTS:
-        return
-
-    payload = {
-        "title": title,
-        "message": message,
-        "details": details or {},
-        "node_id": NODE_ID,
-        "timestamp": datetime.now().isoformat()
-    }
-
-    await _send_webhook_alert(payload)
-
-    if ALERT_EMAIL and SMTP_HOST:
-        body = json.dumps(payload, indent=2)
-        try:
-            await asyncio.to_thread(_send_email_alert_sync, title, body)
-        except Exception as exc:
-            print(f"⚠️ Failed to send alert email: {exc}")
 
 # ============================================================================
 # Gonka ML Node Required Endpoints
@@ -197,9 +121,9 @@ async def inference_down(version: str | None = None):
 async def pow_init(request: dict = Body(...), version: str | None = None):
     """Handle Proof of Compute init"""
     print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
-    # MLNode OpenAPI response schema: {"status": "OK"}.
     return {
-        "status": "OK"
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.post("/api/v1/pow/init/generate")
@@ -209,9 +133,9 @@ async def pow_init_generate(request: dict = Body(...), version: str | None = Non
     """Handle Proof of Compute initialization"""
     print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
     # For a proxy, we acknowledge but don't actually compute PoC
-    # MLNode OpenAPI response schema: {"status": "OK"}.
     return {
-        "status": "OK"
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.post("/api/v1/pow/init/validate")
@@ -253,9 +177,9 @@ async def pow_phase_validate(request: dict = Body(...), version: str | None = No
 async def pow_validate(request: dict = Body(...), version: str | None = None):
     """Handle PoC proof validation"""
     print(f"🔐 PoC validate request: {json.dumps(request, indent=2)}")
-    # MLNode OpenAPI response schema: {"status": "OK"}.
     return {
-        "status": "OK"
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/v1/pow/status")
@@ -420,21 +344,6 @@ async def chat_completions(request: Request, version: str | None = None):
                         json=body,
                         headers=headers
                     ) as response:
-                        if response.status_code >= 500:
-                            error_text = await response.aread()
-                            await send_alert(
-                                "Hyperbolic API 5xx error",
-                                "Received 5xx response during streaming request.",
-                                {
-                                    "status_code": response.status_code,
-                                    "response": error_text.decode()
-                                }
-                            )
-                            raise HTTPException(
-                                status_code=response.status_code,
-                                detail=f"Hyperbolic API error: {error_text.decode()}"
-                            )
-
                         if response.status_code != 200:
                             error_text = await response.aread()
                             raise HTTPException(
@@ -457,15 +366,6 @@ async def chat_completions(request: Request, version: str | None = None):
                     headers=headers
                 )
                 
-                if response.status_code >= 500:
-                    await send_alert(
-                        "Hyperbolic API 5xx error",
-                        "Received 5xx response from Hyperbolic API.",
-                        {
-                            "status_code": response.status_code,
-                            "response": response.text
-                        }
-                    )
                 if response.status_code != 200:
                     raise HTTPException(
                         status_code=response.status_code,
@@ -484,42 +384,9 @@ async def chat_completions(request: Request, version: str | None = None):
 # Registration with Gonka Network
 # ============================================================================
 
-async def preflight_self_check() -> bool:
-    """Verify the proxy is reachable before registration."""
-    base_url = f"http://{VPS_IP}:{PROXY_PORT}"
-    endpoints = ["/health", "/api/v1/state"]
-
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for endpoint in endpoints:
-            url = f"{base_url}{endpoint}"
-            try:
-                response = await client.get(url)
-            except Exception as exc:
-                print(f"⚠️ Preflight check failed for {url}: {exc}")
-                return False
-
-            if response.status_code != 200:
-                print(
-                    "⚠️ Preflight check failed for "
-                    f"{url}: {response.status_code} {response.text}"
-                )
-                return False
-
-    return True
-
 async def register_with_gonka():
     """Register this proxy node with Gonka Network"""
-
-    preflight_ok = await preflight_self_check()
-    if not preflight_ok:
-        print("⚠️ Skipping registration because preflight checks failed.")
-        await send_alert(
-            "Gonka registration skipped",
-            "Preflight checks failed; registration was skipped.",
-            {"admin_api": GONKA_ADMIN_API, "proxy_port": PROXY_PORT}
-        )
-        return False
-
+    
     registration_data = {
         "id": NODE_ID,
         "host": VPS_IP,
@@ -555,20 +422,10 @@ async def register_with_gonka():
             else:
                 print(f"❌ Registration failed: {response.status_code}")
                 print(f"   Response: {response.text}")
-                await send_alert(
-                    "Gonka registration failed",
-                    "Non-200 response when registering proxy.",
-                    {"status_code": response.status_code, "response": response.text}
-                )
                 return False
     
     except Exception as e:
         print(f"❌ Registration error: {str(e)}")
-        await send_alert(
-            "Gonka registration error",
-            "Exception while registering proxy.",
-            {"error": str(e)}
-        )
         return False
 
 # ============================================================================
