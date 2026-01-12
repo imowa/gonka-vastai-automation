@@ -118,9 +118,9 @@ async def inference_down(version: str | None = None):
 async def pow_init(request: dict = Body(...), version: str | None = None):
     """Handle Proof of Compute init"""
     print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
+    # MLNode OpenAPI response schema: {"status": "OK"}.
     return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
+        "status": "OK"
     }
 
 @app.post("/api/v1/pow/init/generate")
@@ -130,9 +130,9 @@ async def pow_init_generate(request: dict = Body(...), version: str | None = Non
     """Handle Proof of Compute initialization"""
     print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
     # For a proxy, we acknowledge but don't actually compute PoC
+    # MLNode OpenAPI response schema: {"status": "OK"}.
     return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
+        "status": "OK"
     }
 
 @app.post("/api/v1/pow/init/validate")
@@ -174,9 +174,9 @@ async def pow_phase_validate(request: dict = Body(...), version: str | None = No
 async def pow_validate(request: dict = Body(...), version: str | None = None):
     """Handle PoC proof validation"""
     print(f"🔐 PoC validate request: {json.dumps(request, indent=2)}")
+    # MLNode OpenAPI response schema: {"status": "OK"}.
     return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
+        "status": "OK"
     }
 
 @app.get("/api/v1/pow/status")
