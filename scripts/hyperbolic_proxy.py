@@ -13,11 +13,15 @@ import uvicorn
 from datetime import datetime
 
 # Configuration
-NODE_ID = os.getenv("NODE_ID", "hyperbolic-proxy-1")
+NODE_ID = os.getenv("MLNODE_ID", os.getenv("NODE_ID", "hyperbolic-proxy-1"))
 VPS_IP = os.getenv("VPS_IP", "198.74.55.121")
-PROXY_PORT = int(os.getenv("PROXY_PORT", "8080"))
+PROXY_PORT = int(os.getenv("HYPERBOLIC_PROXY_PORT", os.getenv("PROXY_PORT", "8080")))
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/QwQ-32B")
+MODEL_NAME = os.getenv(
+    "HYPERBOLIC_MODEL",
+    os.getenv("MLNODE_MODEL", os.getenv("MODEL_NAME", "Qwen/QwQ-32B")),
+)
+HYPERBOLIC_BASE_URL = os.getenv("HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz")
 GONKA_ADMIN_API = os.getenv("GONKA_ADMIN_API_URL", os.getenv("GONKA_ADMIN_API", "http://localhost:9200"))
 INFERENCE_SEGMENT = os.getenv("INFERENCE_SEGMENT", "/v1")
 POC_SEGMENT = os.getenv("POC_SEGMENT", "/api/v1")
@@ -42,15 +46,27 @@ node_state = NodeState()
 
 app = FastAPI(title="Hyperbolic Proxy for Gonka")
 
+
+def normalize_hyperbolic_base_url(raw_url: str) -> str:
+    normalized = raw_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        normalized = normalized[:-3]
+    return normalized or "https://api.hyperbolic.xyz"
+
+
+HYPERBOLIC_BASE_URL = normalize_hyperbolic_base_url(HYPERBOLIC_BASE_URL)
+
 # ============================================================================
 # Gonka ML Node Required Endpoints
 # ============================================================================
 
 @app.get("/health")
 @app.get("/api/v1/health")
+@app.get("/{version}/health")
+@app.get("/{version}/api/v1/health")
 @app.get("/v3.0.8/api/v1/health")
 @app.get("/v3.0.8/health")
-async def health_check():
+async def health_check(version: str | None = None):
     """Health check endpoint"""
     return {
         "status": "healthy",
@@ -60,14 +76,16 @@ async def health_check():
     }
 
 @app.get("/api/v1/state")
+@app.get("/{version}/api/v1/state")
 @app.get("/v3.0.8/api/v1/state")
-async def get_state():
+async def get_state(version: str | None = None):
     """Return current node state"""
     return node_state.to_dict()
 
 @app.post("/api/v1/stop")
+@app.post("/{version}/api/v1/stop")
 @app.post("/v3.0.8/api/v1/stop")
-async def stop_node():
+async def stop_node(version: str | None = None):
     """Stop the node (transition to STOPPED state)"""
     print(f"🛑 Stop request received at {datetime.now()}")
     node_state.status = "STOPPED"
@@ -75,17 +93,40 @@ async def stop_node():
     return node_state.to_dict()
 
 @app.post("/api/v1/inference/up")
+@app.post("/{version}/api/v1/inference/up")
 @app.post("/v3.0.8/api/v1/inference/up")
-async def inference_up():
+async def inference_up(version: str | None = None):
     """Mark node as ready for inference"""
     print(f"✅ Inference UP request received at {datetime.now()}")
     node_state.status = "INFERENCE"
     node_state.ready = True
     return node_state.to_dict()
 
+@app.post("/api/v1/inference/down")
+@app.post("/{version}/api/v1/inference/down")
+@app.post("/v3.0.8/api/v1/inference/down")
+async def inference_down(version: str | None = None):
+    """Mark node as not ready for inference"""
+    print(f"🛑 Inference DOWN request received at {datetime.now()}")
+    node_state.status = "STOPPED"
+    node_state.ready = False
+    return node_state.to_dict()
+
+@app.post("/api/v1/pow/init")
+@app.post("/{version}/api/v1/pow/init")
+@app.post("/v3.0.8/api/v1/pow/init")
+async def pow_init(request: dict = Body(...), version: str | None = None):
+    """Handle Proof of Compute init"""
+    print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
+    return {
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
+    }
+
 @app.post("/api/v1/pow/init/generate")
+@app.post("/{version}/api/v1/pow/init/generate")
 @app.post("/v3.0.8/api/v1/pow/init/generate")
-async def pow_init_generate(request: dict = Body(...)):
+async def pow_init_generate(request: dict = Body(...), version: str | None = None):
     """Handle Proof of Compute initialization"""
     print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
     # For a proxy, we acknowledge but don't actually compute PoC
@@ -94,9 +135,105 @@ async def pow_init_generate(request: dict = Body(...)):
         "timestamp": datetime.now().isoformat()
     }
 
+@app.post("/api/v1/pow/init/validate")
+@app.post("/{version}/api/v1/pow/init/validate")
+@app.post("/v3.0.8/api/v1/pow/init/validate")
+async def pow_init_validate(request: dict = Body(...), version: str | None = None):
+    """Handle Proof of Compute init validation"""
+    print(f"🔐 PoC init validate request: {json.dumps(request, indent=2)}")
+    return {
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/pow/phase/generate")
+@app.post("/{version}/api/v1/pow/phase/generate")
+@app.post("/v3.0.8/api/v1/pow/phase/generate")
+async def pow_phase_generate(request: dict = Body(...), version: str | None = None):
+    """Handle PoC phase generate requests"""
+    print(f"🔐 PoC phase generate request: {json.dumps(request, indent=2)}")
+    return {
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/pow/phase/validate")
+@app.post("/{version}/api/v1/pow/phase/validate")
+@app.post("/v3.0.8/api/v1/pow/phase/validate")
+async def pow_phase_validate(request: dict = Body(...), version: str | None = None):
+    """Handle PoC phase validate requests"""
+    print(f"🔐 PoC phase validate request: {json.dumps(request, indent=2)}")
+    return {
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/pow/validate")
+@app.post("/{version}/api/v1/pow/validate")
+@app.post("/v3.0.8/api/v1/pow/validate")
+async def pow_validate(request: dict = Body(...), version: str | None = None):
+    """Handle PoC proof validation"""
+    print(f"🔐 PoC validate request: {json.dumps(request, indent=2)}")
+    return {
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/v1/pow/status")
+@app.get("/{version}/api/v1/pow/status")
+@app.get("/v3.0.8/api/v1/pow/status")
+async def pow_status(version: str | None = None):
+    """Return PoC status"""
+    return {
+        "status": "idle",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/pow/stop")
+@app.post("/{version}/api/v1/pow/stop")
+@app.post("/v3.0.8/api/v1/pow/stop")
+async def pow_stop(version: str | None = None):
+    """Stop PoC processing"""
+    return {
+        "status": "stopped",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/train/start")
+@app.post("/{version}/api/v1/train/start")
+@app.post("/v3.0.8/api/v1/train/start")
+async def train_start(request: dict = Body(...), version: str | None = None):
+    """Start training (no-op for proxy)"""
+    print(f"📚 Train start request: {json.dumps(request, indent=2)}")
+    return {
+        "status": "acknowledged",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/train/stop")
+@app.post("/{version}/api/v1/train/stop")
+@app.post("/v3.0.8/api/v1/train/stop")
+async def train_stop(version: str | None = None):
+    """Stop training (no-op for proxy)"""
+    return {
+        "status": "stopped",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/v1/train/status")
+@app.get("/{version}/api/v1/train/status")
+@app.get("/v3.0.8/api/v1/train/status")
+async def train_status(version: str | None = None):
+    """Return training status"""
+    return {
+        "status": "idle",
+        "timestamp": datetime.now().isoformat()
+    }
+
 @app.post("/api/v1/models/status")
+@app.post("/{version}/api/v1/models/status")
 @app.post("/v3.0.8/api/v1/models/status")
-async def models_status(request: dict = Body(...)):
+async def models_status(request: dict = Body(...), version: str | None = None):
     """Return status of requested models"""
     print(f"📋 Models status request: {json.dumps(request, indent=2)}")
     
@@ -137,8 +274,9 @@ async def models_status(request: dict = Body(...)):
         return {"models": status}
 
 @app.get("/api/v1/gpu/devices")
+@app.get("/{version}/api/v1/gpu/devices")
 @app.get("/v3.0.8/api/v1/gpu/devices")
-async def gpu_devices():
+async def gpu_devices(version: str | None = None):
     """Return GPU device information"""
     print(f"🖥️  GPU devices request at {datetime.now()}")
     
@@ -165,8 +303,10 @@ async def gpu_devices():
 
 @app.post("/v1/chat/completions")
 @app.post("/api/v1/chat/completions")
+@app.post("/{version}/v1/chat/completions")
+@app.post("/{version}/api/v1/chat/completions")
 @app.post("/v3.0.8/v1/chat/completions")
-async def chat_completions(request: Request):
+async def chat_completions(request: Request, version: str | None = None):
     """Proxy chat completions to Hyperbolic API"""
     
     if not HYPERBOLIC_API_KEY:
@@ -197,7 +337,7 @@ async def chat_completions(request: Request):
                 async def stream_generator():
                     async with client.stream(
                         "POST",
-                        "https://api.hyperbolic.xyz/v1/chat/completions",
+                        f"{HYPERBOLIC_BASE_URL}/v1/chat/completions",
                         json=body,
                         headers=headers
                     ) as response:
@@ -218,7 +358,7 @@ async def chat_completions(request: Request):
             else:
                 # Handle non-streaming response
                 response = await client.post(
-                    "https://api.hyperbolic.xyz/v1/chat/completions",
+                    f"{HYPERBOLIC_BASE_URL}/v1/chat/completions",
                     json=body,
                     headers=headers
                 )

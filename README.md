@@ -63,13 +63,15 @@ pip install -r requirements.txt
 
 ### Step 2: Configure environment
 
-Create `config/.env` (use `config/.env.example` as a template if present) and
+Create `config/.env` (use `config/.env.example` as a template) and
 set your keys. Example:
 
 ```bash
 # Hyperbolic API (inference)
 HYPERBOLIC_API_KEY=your_hyperbolic_api_key_here
 HYPERBOLIC_MODEL=Qwen/QwQ-32B
+HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz/v1
+HYPERBOLIC_PROXY_PORT=8080
 
 # Vast.ai (PoC rentals)
 VASTAI_API_KEY=your_vastai_api_key_here
@@ -94,15 +96,20 @@ python3 scripts/hyperbolic_proxy.py
 ```
 
 Default settings (override via environment variables):
-- `NODE_ID` (default: `hyperbolic-proxy-1`)
+- `MLNODE_ID` or `NODE_ID` (default: `hyperbolic-proxy-1`)
 - `VPS_IP` (default: `198.74.55.121`)
-- `PROXY_PORT` (default: `8080`)
-- `MODEL_NAME` (default: `Qwen/QwQ-32B`)
+- `HYPERBOLIC_PROXY_PORT` or `PROXY_PORT` (default: `8080`)
+- `HYPERBOLIC_API_KEY` (required)
+- `HYPERBOLIC_MODEL`, `MLNODE_MODEL`, or `MODEL_NAME` (default: `Qwen/QwQ-32B`)
+- `HYPERBOLIC_BASE_URL` (default: `https://api.hyperbolic.xyz`, accepts `/v1`)
 - `GONKA_ADMIN_API_URL` (default: `http://localhost:9200`)
 - `INFERENCE_SEGMENT` (default: `/v1`)
 - `POC_SEGMENT` (default: `/api/v1`)
 - `HARDWARE_TYPE` (default: `Hyperbolic-API`)
 - `HARDWARE_COUNT` (default: `1`)
+
+The proxy also accepts version-prefixed paths (for example: `/v3.0.8/api/v1/*`
+or `/v3.0.8/v1/chat/completions`) to align with the network node URL builder.
 
 ### Step 4: Start PoC scheduler (Vast.ai)
 
@@ -112,24 +119,6 @@ python3 scripts/3_poc_scheduler.py
 ```
 
 The scheduler monitors the chain and spins up Vast.ai GPUs for PoC windows.
-
-## Hybrid Run
-
-Use the helper scripts to start or stop both the Hyperbolic proxy and PoC
-scheduler together. The start script loads `config/.env`, activates the
-virtualenv, and writes logs to `logs/`.
-
-```bash
-./scripts/start_hybrid.sh
-```
-
-To stop both services:
-
-```bash
-./scripts/stop_hybrid.sh
-```
-
-For a systemd example, see `scripts/systemd/gonka-hybrid.service`.
 
 ## Key Scripts
 
