@@ -113,6 +113,24 @@ python3 scripts/3_poc_scheduler.py
 
 The scheduler monitors the chain and spins up Vast.ai GPUs for PoC windows.
 
+## Hybrid Run
+
+Use the helper scripts to start or stop both the Hyperbolic proxy and PoC
+scheduler together. The start script loads `config/.env`, activates the
+virtualenv, and writes logs to `logs/`.
+
+```bash
+./scripts/start_hybrid.sh
+```
+
+To stop both services:
+
+```bash
+./scripts/stop_hybrid.sh
+```
+
+For a systemd example, see `scripts/systemd/gonka-hybrid.service`.
+
 ## Key Scripts
 
 - `scripts/hyperbolic_proxy.py`: Hyperbolic inference proxy + MLNode endpoints
