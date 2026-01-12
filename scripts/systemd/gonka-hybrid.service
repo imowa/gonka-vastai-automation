@@ -1,0 +1,16 @@
+[Unit]
+Description=Gonka Hybrid MLNode (Hyperbolic Proxy + PoC Scheduler)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+WorkingDirectory=/opt/gonka-vastai-automation
+ExecStart=/opt/gonka-vastai-automation/scripts/start_hybrid.sh
+ExecStop=/opt/gonka-vastai-automation/scripts/stop_hybrid.sh
+Restart=on-failure
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target
