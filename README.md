@@ -67,8 +67,12 @@ Create `config/.env` (use `config/.env.example` as a template) and
 set your keys. Example:
 
 ```bash
-# Hyperbolic API (inference)
+# Required for the Hyperbolic proxy
 HYPERBOLIC_API_KEY=your_hyperbolic_api_key_here
+VPS_IP=your_vps_public_ip
+GONKA_ADMIN_API_URL=http://localhost:9200
+
+# Hyperbolic API (inference)
 HYPERBOLIC_MODEL=Qwen/QwQ-32B
 HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz/v1
 HYPERBOLIC_PROXY_PORT=8080
@@ -107,12 +111,12 @@ python3 scripts/hyperbolic_proxy.py
 
 Default settings (override via environment variables):
 - `MLNODE_ID` or `NODE_ID` (default: `hyperbolic-proxy-1`)
-- `VPS_IP` (default: `198.74.55.121`)
+- `VPS_IP` (required)
 - `HYPERBOLIC_PROXY_PORT` or `PROXY_PORT` (default: `8080`)
 - `HYPERBOLIC_API_KEY` (required)
 - `HYPERBOLIC_MODEL`, `MLNODE_MODEL`, or `MODEL_NAME` (default: `Qwen/QwQ-32B`)
 - `HYPERBOLIC_BASE_URL` (default: `https://api.hyperbolic.xyz`, accepts `/v1`)
-- `GONKA_ADMIN_API_URL` (default: `http://localhost:9200`)
+- `GONKA_ADMIN_API_URL` (required)
 - `INFERENCE_SEGMENT` (default: `/v1`)
 - `POC_SEGMENT` (default: `/api/v1`)
 - `HARDWARE_TYPE` (default: `Hyperbolic-API`)
