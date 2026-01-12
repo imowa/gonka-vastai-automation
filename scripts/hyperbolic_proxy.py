@@ -381,9 +381,37 @@ async def chat_completions(request: Request, version: str | None = None):
 # Registration with Gonka Network
 # ============================================================================
 
+async def preflight_self_check() -> bool:
+    """Verify the proxy is reachable before registration."""
+    base_url = f"http://{VPS_IP}:{PROXY_PORT}"
+    endpoints = ["/health", "/api/v1/state"]
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for endpoint in endpoints:
+            url = f"{base_url}{endpoint}"
+            try:
+                response = await client.get(url)
+            except Exception as exc:
+                print(f"⚠️ Preflight check failed for {url}: {exc}")
+                return False
+
+            if response.status_code != 200:
+                print(
+                    "⚠️ Preflight check failed for "
+                    f"{url}: {response.status_code} {response.text}"
+                )
+                return False
+
+    return True
+
 async def register_with_gonka():
     """Register this proxy node with Gonka Network"""
-    
+
+    preflight_ok = await preflight_self_check()
+    if not preflight_ok:
+        print("⚠️ Skipping registration because preflight checks failed.")
+        return False
+
     registration_data = {
         "id": NODE_ID,
         "host": VPS_IP,
