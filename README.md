@@ -111,6 +111,17 @@ Default settings (override via environment variables):
 The proxy also accepts version-prefixed paths (for example: `/v3.0.8/api/v1/*`
 or `/v3.0.8/v1/chat/completions`) to align with the network node URL builder.
 
+### Firewall and health checks
+
+The proxy must be reachable on `HYPERBOLIC_PROXY_PORT` (default `8080`). Ensure
+your VPS firewall/security group allows inbound TCP traffic to that port from
+the Gonka admin node and that the VPS can reach its own public `VPS_IP` on the
+same port.
+
+Expected health endpoints (replace `<VPS_IP>` and `<PORT>` as needed):
+- `http://<VPS_IP>:<PORT>/health`
+- `http://<VPS_IP>:<PORT>/api/v1/state`
+
 ### Step 4: Start PoC scheduler (Vast.ai)
 
 ```bash
