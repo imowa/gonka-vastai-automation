@@ -14,6 +14,7 @@ import os
 import time
 import json
 import logging
+import requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 from dataclasses import dataclass
@@ -70,6 +71,19 @@ class PoCScheduler:
         self.max_duration = int(os.getenv('MAX_POC_DURATION', '10800'))  # 3 hours safety
         self.check_interval = int(os.getenv('POC_CHECK_INTERVAL', '300'))  # 5 minutes
         self.max_daily_spend = float(os.getenv('MAX_DAILY_SPEND', '2.0'))
+        self.admin_api_url = os.getenv('GONKA_ADMIN_API_URL', 'http://localhost:9200')
+        self.proxy_host = os.getenv("VPS_IP", "198.74.55.121")
+        self.proxy_port = int(os.getenv("HYPERBOLIC_PROXY_PORT", os.getenv("PROXY_PORT", "8080")))
+        self.proxy_health_path = os.getenv("PROXY_HEALTH_PATH", "/health")
+        self.proxy_node_id = os.getenv("MLNODE_ID", os.getenv("NODE_ID", "hyperbolic-proxy-1"))
+        self.proxy_model_name = os.getenv(
+            "HYPERBOLIC_MODEL",
+            os.getenv("MLNODE_MODEL", os.getenv("MODEL_NAME", "Qwen/QwQ-32B"))
+        )
+        self.proxy_inference_segment = os.getenv("INFERENCE_SEGMENT", "/v1")
+        self.proxy_poc_segment = os.getenv("POC_SEGMENT", "/api/v1")
+        self.proxy_hardware_type = os.getenv("HARDWARE_TYPE", "Hyperbolic-API")
+        self.proxy_hardware_count = int(os.getenv("HARDWARE_COUNT", "1"))
         
         # State
         self.current_session: Optional[PoCSession] = None
@@ -126,6 +140,81 @@ class PoCScheduler:
         logger.info(f"Cost estimate for 15 min: ${(best_offer.dph_total / 60) * 15:.3f}")
         
         return best_offer.id
+
+    def _proxy_base_url(self) -> str:
+        return f"http://{self.proxy_host}:{self.proxy_port}"
+
+    def check_inference_proxy_health(self) -> bool:
+        """Check inference proxy health endpoint"""
+        url = f"{self._proxy_base_url()}{self.proxy_health_path}"
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                logger.info(f"✅ Inference proxy healthy at {url}")
+                return True
+            logger.warning(f"⚠️ Inference proxy health check failed: {response.status_code} {response.text}")
+            return False
+        except requests.RequestException as e:
+            logger.warning(f"⚠️ Inference proxy health check failed: {e}")
+            return False
+
+    def is_inference_proxy_registered(self) -> bool:
+        """Check if inference proxy is registered with Network Node"""
+        try:
+            response = requests.get(f"{self.admin_api_url}/admin/v1/nodes", timeout=10)
+            response.raise_for_status()
+            nodes = response.json()
+            for node_data in nodes:
+                node_info = node_data.get('node', {})
+                if node_info.get('id') == self.proxy_node_id:
+                    return True
+        except requests.RequestException as e:
+            logger.warning(f"⚠️ Failed to check proxy registration: {e}")
+        return False
+
+    def register_inference_proxy(self) -> bool:
+        """Register inference proxy with Network Node"""
+        payload = {
+            "id": self.proxy_node_id,
+            "host": self.proxy_host,
+            "inference_port": self.proxy_port,
+            "inference_segment": self.proxy_inference_segment,
+            "poc_port": self.proxy_port,
+            "poc_segment": self.proxy_poc_segment,
+            "max_concurrent": 100,
+            "models": {
+                self.proxy_model_name: {}
+            },
+            "hardware": [
+                {"type": self.proxy_hardware_type, "count": self.proxy_hardware_count}
+            ]
+        }
+
+        try:
+            logger.info(f"Registering inference proxy node {self.proxy_node_id}")
+            response = requests.post(
+                f"{self.admin_api_url}/admin/v1/nodes",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=30
+            )
+            response.raise_for_status()
+            logger.info(f"✅ Inference proxy registered: {self.proxy_node_id}")
+            return True
+        except requests.RequestException as e:
+            logger.warning(f"⚠️ Failed to register inference proxy: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.warning(f"Response: {e.response.text}")
+            return False
+
+    def ensure_inference_proxy_registered(self) -> None:
+        """Ensure inference proxy is registered, re-register if missing"""
+        if self.is_inference_proxy_registered():
+            logger.info("✅ Inference proxy already registered")
+            return
+
+        logger.warning("⚠️ Inference proxy not registered; attempting to register")
+        self.register_inference_proxy()
     
     def start_gpu_instance(self, offer_id: int) -> Optional[int]:
         """
@@ -210,6 +299,8 @@ echo "Ready for PoC Sprint"
             
             # Step 3: Register remote vLLM as MLNode
             logger.info("Step 3: Registering remote vLLM with Network Node...")
+            if not self.check_inference_proxy_health():
+                logger.warning("⚠️ Inference proxy is down; proceeding with PoC registration")
             if not vllm_manager.register_remote_mlnode(vllm_host, instance_id):
                 logger.error("Failed to register remote MLNode")
                 vllm_manager.stop_remote_vllm(ssh_info)
@@ -230,6 +321,7 @@ echo "Ready for PoC Sprint"
             logger.info("Step 5: Cleanup...")
             vllm_manager.unregister_remote_mlnode(instance_id)
             vllm_manager.stop_remote_vllm(ssh_info)
+            self.ensure_inference_proxy_registered()
             
             logger.info("✅ Cleanup complete")
             return success
