@@ -52,6 +52,18 @@ parser.add_argument(
     help="Maximum time to wait for vLLM to be ready (seconds).",
 )
 parser.add_argument(
+    "--search-retries",
+    type=int,
+    default=int(os.getenv("VASTAI_SEARCH_RETRIES", "3")),
+    help="Number of times to retry the GPU search before failing.",
+)
+parser.add_argument(
+    "--search-interval",
+    type=int,
+    default=int(os.getenv("VASTAI_SEARCH_INTERVAL", "300")),
+    help="Seconds to wait between GPU search attempts.",
+)
+parser.add_argument(
     "--keep-instance",
     action="store_true",
     help="Leave the GPU instance running instead of stopping it.",
@@ -88,17 +100,31 @@ start_time = time.time()
 
 # Step 1: Find GPU
 print("\nStep 1: Searching for GPU...")
-blocked_offer_ids = scheduler.vastai.get_blocked_offer_ids()
-blocked_host_ids = scheduler.vastai.get_blocked_host_ids()
-offers = scheduler.vastai.search_offers(
-    limit=5,
-    exclude_offer_ids=blocked_offer_ids,
-    exclude_host_ids=blocked_host_ids,
-)
-valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
+valid_offers = []
+search_attempt = 0
+
+while search_attempt < max(1, args.search_retries):
+    search_attempt += 1
+    blocked_offer_ids = scheduler.vastai.get_blocked_offer_ids()
+    blocked_host_ids = scheduler.vastai.get_blocked_host_ids()
+    offers = scheduler.vastai.search_offers(
+        limit=5,
+        exclude_offer_ids=blocked_offer_ids,
+        exclude_host_ids=blocked_host_ids,
+    )
+    valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
+    if valid_offers:
+        break
+
+    if search_attempt < args.search_retries:
+        print(
+            f"⚠️  No GPU available (attempt {search_attempt}/{args.search_retries}). "
+            f"Retrying in {args.search_interval}s..."
+        )
+        time.sleep(args.search_interval)
 
 if not valid_offers:
-    print("❌ No GPU available")
+    print("❌ No GPU available after retries")
     sys.exit(1)
 
 valid_offers.sort(key=lambda offer: offer.dph_total)

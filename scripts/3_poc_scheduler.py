@@ -92,6 +92,8 @@ class PoCScheduler:
         self.proxy_hardware_count = int(os.getenv("HARDWARE_COUNT", "1"))
         self.instance_ready_timeout = int(os.getenv("VASTAI_INSTANCE_READY_TIMEOUT", "1800"))
         self.instance_start_retries = int(os.getenv("VASTAI_START_RETRIES", "2"))
+        self.search_retries = int(os.getenv("VASTAI_SEARCH_RETRIES", "3"))
+        self.search_interval = int(os.getenv("VASTAI_SEARCH_INTERVAL", "300"))
         self.vastai_docker_image = os.getenv(
             "DOCKER_IMAGE",
             os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
@@ -114,6 +116,11 @@ class PoCScheduler:
             self.instance_ready_timeout // 60,
         )
         logger.info("Instance start retries: %s", self.instance_start_retries)
+        logger.info(
+            "GPU search retries: %s (interval %ss)",
+            self.search_retries,
+            self.search_interval,
+        )
     
     def reset_daily_spend(self):
         """Reset daily spend counter at midnight"""
@@ -138,28 +145,41 @@ class PoCScheduler:
             Offer ID if found, None otherwise
         """
         logger.info("Searching for available GPU instances...")
-        
-        blocked_offer_ids = self.vastai.get_blocked_offer_ids()
-        blocked_host_ids = self.vastai.get_blocked_host_ids()
-        if exclude_offer_ids:
-            blocked_offer_ids = blocked_offer_ids.union(exclude_offer_ids)
+        valid_offers = []
+        attempts = max(1, self.search_retries)
 
-        offers = self.vastai.search_offers(
-            limit=5,
-            exclude_offer_ids=blocked_offer_ids,
-            exclude_host_ids=blocked_host_ids,
-        )
-        
-        if not offers:
-            logger.error("No GPU instances available")
-            return None
-        
-        # Filter by VRAM requirement (need 40GB+ total)
-        valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
-        
+        for attempt in range(1, attempts + 1):
+            blocked_offer_ids = self.vastai.get_blocked_offer_ids()
+            blocked_host_ids = self.vastai.get_blocked_host_ids()
+            if exclude_offer_ids:
+                blocked_offer_ids = blocked_offer_ids.union(exclude_offer_ids)
+
+            offers = self.vastai.search_offers(
+                limit=5,
+                exclude_offer_ids=blocked_offer_ids,
+                exclude_host_ids=blocked_host_ids,
+            )
+
+            if not offers:
+                logger.warning("No GPU instances available (attempt %s/%s)", attempt, attempts)
+            else:
+                # Filter by VRAM requirement (need 40GB+ total)
+                valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
+                if valid_offers:
+                    break
+                logger.warning(
+                    "No instances with 40GB+ VRAM found (attempt %s/%s)",
+                    attempt,
+                    attempts,
+                )
+                logger.info("Available offers didn't meet VRAM requirements")
+
+            if attempt < attempts:
+                logger.info("Retrying GPU search in %ss...", self.search_interval)
+                time.sleep(self.search_interval)
+
         if not valid_offers:
-            logger.error("No instances with 40GB+ VRAM found")
-            logger.info("Available offers didn't meet VRAM requirements")
+            logger.error("No suitable GPU instances available after %s attempts", attempts)
             return None
         
         # Select cheapest valid offer
