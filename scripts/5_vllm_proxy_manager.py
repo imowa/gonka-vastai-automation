@@ -300,7 +300,7 @@ class RemoteVLLMManager:
 	cap = os.environ.get("COMPUTE_CAP", "0").strip()
 	try:
 	    major, minor = cap.split(".", 1)
-	    value = float(f"{major}.{minor}")
+	    value = float(f"{{major}}.{{minor}}")
 	except ValueError:
 	    value = 0
 
