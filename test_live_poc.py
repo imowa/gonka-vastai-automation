@@ -5,6 +5,10 @@ This will cost money on Vast.ai and may take several minutes while the
 container image downloads.
 """
 import sys
+import os
+import time
+import json
+import logging
 import importlib.util
 import argparse
 
@@ -32,28 +36,65 @@ if not args.yes:
     input()
 
 scheduler = scheduler_module.PoCScheduler()
+start_time = time.time()
 
 # Step 1: Find GPU
 print("\nStep 1: Searching for GPU...")
-offer_id = scheduler.select_best_gpu()
-if not offer_id:
+offers = scheduler.vastai.search_offers(limit=5)
+valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
+
+if not valid_offers:
     print("❌ No GPU available")
+    sys.exit(1)
+
+valid_offers.sort(key=lambda offer: offer.dph_total)
+print("\nTop offers:")
+for idx, offer in enumerate(valid_offers[:3], start=1):
+    est_cost = (offer.dph_total / 60) * args.estimated_minutes
+    print(
+        f"  {idx}. {offer.gpu_name} | VRAM: {offer.gpu_ram * offer.num_gpus / 1000:.1f}GB "
+        f"| ${offer.dph_total:.3f}/hr | est ${est_cost:.3f}"
+    )
+
+best_offer = valid_offers[0]
+estimated_cost = (best_offer.dph_total / 60) * args.estimated_minutes
+logger.info(
+    "Selected offer %s (%s) at $%.3f/hr, estimated $%.3f for %d minutes.",
+    best_offer.id,
+    best_offer.gpu_name,
+    best_offer.dph_total,
+    estimated_cost,
+    args.estimated_minutes,
+)
+
+if args.max_cost is not None and estimated_cost > args.max_cost:
+    print(
+        f"❌ Estimated cost ${estimated_cost:.3f} exceeds max cost ${args.max_cost:.3f}. "
+        "Aborting."
+    )
     sys.exit(1)
 
 # Step 2: Rent GPU
 print("\nStep 2: Renting GPU...")
-instance_id = scheduler.start_gpu_instance(offer_id)
+instance_id = scheduler.start_gpu_instance(best_offer.id)
 if not instance_id:
     print("❌ Failed to rent GPU")
     sys.exit(1)
 
 print(f"✅ GPU rented: Instance {instance_id}")
+with open(INSTANCE_ID_PATH, "w", encoding="utf-8") as handle:
+    handle.write(str(instance_id))
+logger.info("Saved instance id %s to %s", instance_id, INSTANCE_ID_PATH)
 
 # Step 3: Deploy and test MLNode
 print("\nStep 3: Deploying MLNode...")
 try:
-    success = scheduler.run_poc_sprint(instance_id)
-    
+    if args.skip_poc:
+        print("\n⚠️  Skipping PoC sprint as requested.")
+        success = True
+    else:
+        success = scheduler.run_poc_sprint(instance_id)
+
     if success:
         print("\n✅ LIVE TEST PASSED!")
     else:
@@ -62,10 +103,16 @@ except Exception as e:
     print(f"\n❌ Test failed: {e}")
 finally:
     # Step 4: Stop GPU
-    print("\nStep 4: Stopping GPU...")
-    scheduler.stop_gpu_instance(instance_id)
-    print("✅ GPU stopped")
+    if args.keep_instance:
+        print("\n⚠️  Leaving GPU running (keep-instance enabled).")
+        print(f"Instance ID: {instance_id}")
+    else:
+        print("\nStep 4: Stopping GPU...")
+        scheduler.stop_gpu_instance(instance_id)
+        print("✅ GPU stopped")
 
+elapsed = time.time() - start_time
+print(f"\nElapsed time: {elapsed:.1f}s")
 print("\n" + "="*60)
 print("  Test Complete")
 print("="*60)
