@@ -91,6 +91,7 @@ class PoCScheduler:
         self.proxy_hardware_type = os.getenv("HARDWARE_TYPE", "Hyperbolic-API")
         self.proxy_hardware_count = int(os.getenv("HARDWARE_COUNT", "1"))
         self.instance_ready_timeout = int(os.getenv("VASTAI_INSTANCE_READY_TIMEOUT", "1800"))
+        self.instance_start_retries = int(os.getenv("VASTAI_START_RETRIES", "2"))
         
         # State
         self.current_session: Optional[PoCSession] = None
@@ -107,6 +108,7 @@ class PoCScheduler:
             self.instance_ready_timeout,
             self.instance_ready_timeout // 60,
         )
+        logger.info("Instance start retries: %s", self.instance_start_retries)
     
     def reset_daily_spend(self):
         """Reset daily spend counter at midnight"""
@@ -123,7 +125,7 @@ class PoCScheduler:
             return False
         return True
     
-    def select_best_gpu(self) -> Optional[int]:
+    def select_best_gpu(self, exclude_offer_ids: Optional[set] = None) -> Optional[int]:
         """
         Search for and select the best available GPU instance
         
@@ -132,7 +134,16 @@ class PoCScheduler:
         """
         logger.info("Searching for available GPU instances...")
         
-        offers = self.vastai.search_offers(limit=5)
+        blocked_offer_ids = self.vastai.get_blocked_offer_ids()
+        blocked_host_ids = self.vastai.get_blocked_host_ids()
+        if exclude_offer_ids:
+            blocked_offer_ids = blocked_offer_ids.union(exclude_offer_ids)
+
+        offers = self.vastai.search_offers(
+            limit=5,
+            exclude_offer_ids=blocked_offer_ids,
+            exclude_host_ids=blocked_host_ids,
+        )
         
         if not offers:
             logger.error("No GPU instances available")
@@ -152,6 +163,37 @@ class PoCScheduler:
         logger.info(f"Cost estimate for 15 min: ${(best_offer.dph_total / 60) * 15:.3f}")
         
         return best_offer.id
+
+    def start_gpu_instance_with_retries(self, preferred_offer_id: Optional[int] = None) -> Optional[int]:
+        """Start a GPU instance with retry logic and blocked offer tracking."""
+        tried_offers = set()
+
+        for attempt in range(1, self.instance_start_retries + 1):
+            if preferred_offer_id and preferred_offer_id not in tried_offers:
+                offer_id = preferred_offer_id
+            else:
+                offer_id = self.select_best_gpu(exclude_offer_ids=tried_offers)
+
+            if not offer_id:
+                logger.error("No GPU offer available for attempt %s", attempt)
+                return None
+
+            tried_offers.add(offer_id)
+            logger.info(
+                "GPU start attempt %s/%s using offer %s",
+                attempt,
+                self.instance_start_retries,
+                offer_id,
+            )
+
+            instance_id = self.start_gpu_instance(offer_id)
+            if instance_id:
+                return instance_id
+
+            logger.warning("GPU start attempt %s failed for offer %s", attempt, offer_id)
+
+        logger.error("All GPU start attempts failed after %s tries", self.instance_start_retries)
+        return None
 
     def _proxy_base_url(self) -> str:
         return f"http://{self.proxy_host}:{self.proxy_port}"
@@ -295,6 +337,7 @@ echo "Ready for PoC Sprint"
             
             if not ssh_info:
                 logger.error("Failed to get SSH connection")
+                self.vastai.block_instance(instance_id, reason="ssh-info-unavailable")
                 return False
             
             logger.info(f"✅ Connected: {ssh_info['host']}:{ssh_info['port']}")
@@ -305,6 +348,7 @@ echo "Ready for PoC Sprint"
             
             if not vllm_host:
                 logger.error("Failed to start vLLM")
+                self.vastai.block_instance(instance_id, reason="vllm-start-failed")
                 return False
             
             logger.info(f"✅ vLLM ready at {vllm_host}")
@@ -383,14 +427,7 @@ echo "Ready for PoC Sprint"
                 return
             
             # Step 2: Select GPU
-            offer_id = self.select_best_gpu()
-            if not offer_id:
-                logger.error("Cannot start PoC: no GPU available")
-                self.current_session.status = "failed"
-                return
-            
-            # Step 3: Start GPU instance
-            instance_id = self.start_gpu_instance(offer_id)
+            instance_id = self.start_gpu_instance_with_retries()
             if not instance_id:
                 logger.error("Cannot start PoC: instance creation failed")
                 self.current_session.status = "failed"

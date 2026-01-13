@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import os
 import sys
 from pathlib import Path
+from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -67,9 +68,94 @@ class VastAIManager:
         self.min_vram = int(os.getenv('VASTAI_MIN_VRAM', '24'))
         self.max_price = float(os.getenv('VASTAI_MAX_PRICE', '1.00'))
         self.disk_size = int(os.getenv('VASTAI_DISK_SIZE', '50'))
+        self.blocked_instance_ids_path = Path("logs/blocked_instance_ids.json")
+        self.blocked_host_ids_path = Path("logs/blocked_host_ids.json")
+        self.blocked_offer_ids_path = Path("logs/blocked_offer_ids.json")
         
         logger.info(f"Vast.ai Manager initialized")
         logger.info(f"Target: {self.num_gpus}x {self.gpu_type}, Max price: ${self.max_price}/hr")
+
+    def _ensure_logs_dir(self) -> None:
+        self.blocked_instance_ids_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _load_blocked_ids(self, path: Path) -> set:
+        if not path.exists():
+            return set()
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, list):
+                return {int(value) for value in data}
+            logger.warning("Blocked IDs file %s is malformed; resetting.", path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Failed to read blocked IDs from %s: %s", path, exc)
+        return set()
+
+    def _save_blocked_ids(self, path: Path, ids: set) -> None:
+        self._ensure_logs_dir()
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(sorted(ids), handle, indent=2)
+
+    def get_blocked_instance_ids(self) -> set:
+        return self._load_blocked_ids(self.blocked_instance_ids_path)
+
+    def get_blocked_host_ids(self) -> set:
+        return self._load_blocked_ids(self.blocked_host_ids_path)
+
+    def get_blocked_offer_ids(self) -> set:
+        return self._load_blocked_ids(self.blocked_offer_ids_path)
+
+    def block_instance(self, instance_id: int, status_data: Optional[Dict] = None, reason: str = "unknown") -> None:
+        blocked_ids = self.get_blocked_instance_ids()
+        if instance_id in blocked_ids:
+            return
+        blocked_ids.add(int(instance_id))
+        self._save_blocked_ids(self.blocked_instance_ids_path, blocked_ids)
+        logger.warning(
+            "Blocked instance %s due to %s at %s.",
+            instance_id,
+            reason,
+            datetime.utcnow().isoformat(timespec="seconds"),
+        )
+
+        status = status_data
+        if status is None:
+            response = self.get_instance_status(instance_id)
+            status = response.get("instances", {}) if response else {}
+
+        host_id = status.get("host_id")
+        if host_id:
+            self.block_host(host_id, reason=reason, instance_id=instance_id)
+
+        offer_id = status.get("bundle_id") or status.get("offer_id")
+        if offer_id:
+            self.block_offer(offer_id, reason=reason, instance_id=instance_id)
+
+    def block_host(self, host_id: int, reason: str = "unknown", instance_id: Optional[int] = None) -> None:
+        blocked_hosts = self.get_blocked_host_ids()
+        if host_id in blocked_hosts:
+            return
+        blocked_hosts.add(int(host_id))
+        self._save_blocked_ids(self.blocked_host_ids_path, blocked_hosts)
+        logger.warning(
+            "Blocked host %s due to %s (instance %s).",
+            host_id,
+            reason,
+            instance_id if instance_id is not None else "n/a",
+        )
+
+    def block_offer(self, offer_id: int, reason: str = "unknown", instance_id: Optional[int] = None) -> None:
+        blocked_offers = self.get_blocked_offer_ids()
+        if offer_id in blocked_offers:
+            return
+        blocked_offers.add(int(offer_id))
+        self._save_blocked_ids(self.blocked_offer_ids_path, blocked_offers)
+        logger.warning(
+            "Blocked offer %s due to %s (instance %s).",
+            offer_id,
+            reason,
+            instance_id if instance_id is not None else "n/a",
+        )
     
     def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
         """Make authenticated request to Vast.ai API"""
@@ -96,7 +182,12 @@ class VastAIManager:
                 logger.error(f"Response: {e.response.text}")
             raise
     
-    def search_offers(self, limit: int = 10) -> List[VastInstance]:
+    def search_offers(
+        self,
+        limit: int = 10,
+        exclude_offer_ids: Optional[set] = None,
+        exclude_host_ids: Optional[set] = None,
+    ) -> List[VastInstance]:
         """
         Search for available GPU instances
         
@@ -127,9 +218,16 @@ class VastAIManager:
                 logger.warning("No offers found matching criteria")
                 return []
             
+            excluded_offers = set(exclude_offer_ids or [])
+            excluded_hosts = set(exclude_host_ids or [])
+
             # Parse and sort offers
             instances = []
             for offer in response['offers'][:limit]:
+                if excluded_offers and offer['id'] in excluded_offers:
+                    continue
+                if excluded_hosts and offer.get('host_id') in excluded_hosts:
+                    continue
                 instance = VastInstance(
                     id=offer['id'],
                     status=offer.get('machine_status', 'unknown'),
@@ -262,6 +360,7 @@ class VastAIManager:
         start_time = time.time()
         check_count = 0
         actual_status = 'unknown'
+        last_status = {}
         
         while time.time() - start_time < timeout:
             check_count += 1
@@ -284,6 +383,8 @@ class VastAIManager:
                 logger.warning(f"Check #{check_count}: Empty instances data, retrying...")
                 time.sleep(10)
                 continue
+
+            last_status = status
             
             # DEBUG: Print response structure (first 3 checks and every 10th)
             if check_count <= 3 or check_count % 10 == 0:
@@ -332,6 +433,7 @@ class VastAIManager:
             # Check for failure states
             if actual_status in ['failed', 'exited', 'error', 'terminated', 'destroyed', 'false', '0']:
                 logger.error(f"❌ Instance {instance_id} failed with status: {actual_status}")
+                self.block_instance(instance_id, status_data=last_status, reason=f"status:{actual_status}")
                 return False
             
             # Still waiting...
@@ -340,6 +442,7 @@ class VastAIManager:
         # Timeout reached
         logger.error(f"❌ Timeout waiting for instance {instance_id} after {timeout}s")
         logger.error(f"Last status was: {actual_status}")
+        self.block_instance(instance_id, status_data=last_status, reason="ready-timeout")
         return False
     
     def get_instance_cost(self, instance_id: int) -> Optional[float]:
