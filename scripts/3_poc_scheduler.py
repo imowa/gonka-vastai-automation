@@ -19,6 +19,11 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict
 from dataclasses import dataclass
 import importlib.util
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 # Load our custom modules
 def load_module(name, path):
@@ -33,8 +38,9 @@ vastai_module = load_module("vastai_manager", "scripts/2_vastai_manager.py")
 PoCMonitor = poc_monitor_module.PoCMonitor
 VastAIManager = vastai_module.VastAIManager
 
-from dotenv import load_dotenv
-load_dotenv('config/.env')
+from env_loader import load_env
+
+load_env('config/.env')
 
 logging.basicConfig(
     level=logging.INFO,
