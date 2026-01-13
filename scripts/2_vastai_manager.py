@@ -254,7 +254,7 @@ class VastAIManager:
     def create_instance(
         self,
         offer_id: int,
-        image: str = "nvidia/cuda:12.1.0-base-ubuntu22.04",
+        image: Optional[str] = None,
         disk: int = 50,
         onstart: Optional[str] = None
     ) -> Optional[int]:
@@ -273,9 +273,13 @@ class VastAIManager:
         logger.info(f"Creating instance from offer {offer_id}...")
         
         try:
+            resolved_image = image or os.getenv(
+                "VASTAI_DOCKER_IMAGE",
+                "vllm/vllm-openai:latest",
+            )
             data = {
                 'client_id': 'me',
-                'image': image,
+                'image': resolved_image,
                 'disk': disk,
                 'label': 'gonka-poc-sprint'
             }
@@ -283,6 +287,7 @@ class VastAIManager:
             if onstart:
                 data['onstart'] = onstart
             
+            logger.info("Using image: %s", resolved_image)
             response = self._make_request('PUT', f'/asks/{offer_id}/', data=data)
             
             if response.get('success'):

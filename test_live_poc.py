@@ -41,11 +41,27 @@ parser.add_argument(
     help="Skip the PoC sprint execution after renting the GPU.",
 )
 parser.add_argument(
+    "--docker-image",
+    default=os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
+    help="Docker image to use (default: vllm/vllm-openai:latest).",
+)
+parser.add_argument(
+    "--wait-timeout",
+    type=int,
+    default=int(os.getenv("VLLM_STARTUP_TIMEOUT", "1800")),
+    help="Maximum time to wait for vLLM to be ready (seconds).",
+)
+parser.add_argument(
     "--keep-instance",
     action="store_true",
     help="Leave the GPU instance running instead of stopping it.",
 )
 args = parser.parse_args()
+
+if args.wait_timeout:
+    os.environ["VLLM_STARTUP_TIMEOUT"] = str(args.wait_timeout)
+if args.docker_image:
+    os.environ["VASTAI_DOCKER_IMAGE"] = args.docker_image
 
 logging.basicConfig(
     level=logging.INFO,
@@ -113,7 +129,10 @@ if args.max_cost is not None and estimated_cost > args.max_cost:
 
 # Step 2: Rent GPU
 print("\nStep 2: Renting GPU...")
-instance_id = scheduler.start_gpu_instance_with_retries(preferred_offer_id=best_offer.id)
+instance_id = scheduler.start_gpu_instance_with_retries(
+    preferred_offer_id=best_offer.id,
+    docker_image=args.docker_image,
+)
 if not instance_id:
     print("❌ Failed to rent GPU")
     sys.exit(1)

@@ -92,6 +92,8 @@ class PoCScheduler:
         self.proxy_hardware_count = int(os.getenv("HARDWARE_COUNT", "1"))
         self.instance_ready_timeout = int(os.getenv("VASTAI_INSTANCE_READY_TIMEOUT", "1800"))
         self.instance_start_retries = int(os.getenv("VASTAI_START_RETRIES", "2"))
+        self.vastai_docker_image = os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest")
+        self.vastai_onstart_script = os.getenv("VASTAI_ONSTART_SCRIPT", "")
         
         # State
         self.current_session: Optional[PoCSession] = None
@@ -164,7 +166,13 @@ class PoCScheduler:
         
         return best_offer.id
 
-    def start_gpu_instance_with_retries(self, preferred_offer_id: Optional[int] = None) -> Optional[int]:
+    def start_gpu_instance_with_retries(
+        self,
+        preferred_offer_id: Optional[int] = None,
+        docker_image: Optional[str] = None,
+        onstart: Optional[str] = None,
+        disk: Optional[int] = None,
+    ) -> Optional[int]:
         """Start a GPU instance with retry logic and blocked offer tracking."""
         tried_offers = set()
 
@@ -186,7 +194,12 @@ class PoCScheduler:
                 offer_id,
             )
 
-            instance_id = self.start_gpu_instance(offer_id)
+            instance_id = self.start_gpu_instance(
+                offer_id,
+                docker_image=docker_image,
+                onstart=onstart,
+                disk=disk,
+            )
             if instance_id:
                 return instance_id
 
@@ -270,7 +283,13 @@ class PoCScheduler:
         logger.warning("⚠️ Inference proxy not registered; attempting to register")
         self.register_inference_proxy()
     
-    def start_gpu_instance(self, offer_id: int) -> Optional[int]:
+    def start_gpu_instance(
+        self,
+        offer_id: int,
+        docker_image: Optional[str] = None,
+        onstart: Optional[str] = None,
+        disk: Optional[int] = None,
+    ) -> Optional[int]:
         """
         Start a GPU instance
         
@@ -279,22 +298,20 @@ class PoCScheduler:
         """
         logger.info(f"Creating instance from offer {offer_id}...")
         
-        # Docker image with Gonka MLNode
-        image = os.getenv('DOCKER_IMAGE', 'nvidia/cuda:12.1.0-base-ubuntu22.04')
-        disk = int(os.getenv('VASTAI_DISK_SIZE', '50'))
-        
-        # Startup script to prepare the instance
-        onstart = """#!/bin/bash
-echo "Instance started at $(date)"
-nvidia-smi
-echo "Ready for PoC Sprint"
-"""
+        image = docker_image or self.vastai_docker_image
+        disk = disk if disk is not None else int(os.getenv('VASTAI_DISK_SIZE', '50'))
+        resolved_onstart = onstart
+        if resolved_onstart is None:
+            resolved_onstart = self.vastai_onstart_script.strip() or None
+        logger.info("Using Vast.ai image: %s", image)
+        if resolved_onstart:
+            logger.info("Using custom onstart script (length: %s chars)", len(resolved_onstart))
         
         instance_id = self.vastai.create_instance(
             offer_id=offer_id,
             image=image,
             disk=disk,
-            onstart=onstart
+            onstart=resolved_onstart
         )
         
         if not instance_id:
@@ -322,69 +339,77 @@ echo "Ready for PoC Sprint"
         """
         logger.info(f"Running PoC Sprint with remote vLLM on instance {instance_id}")
         
+        vllm_manager = None
+        ssh_info = None
+        vllm_host = None
+        registered = False
+
         try:
             # Import remote vLLM manager
             spec = importlib.util.spec_from_file_location("vllm_manager", "scripts/5_vllm_proxy_manager.py")
             vllm_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(vllm_module)
             RemoteVLLMManager = vllm_module.RemoteVLLMManager
-            
+
             vllm_manager = RemoteVLLMManager()
-            
+
             # Step 1: Get SSH connection to GPU
             logger.info("Step 1: Connecting to GPU instance...")
             ssh_info = vllm_manager.get_ssh_connection(self.vastai, instance_id)
-            
+
             if not ssh_info:
                 logger.error("Failed to get SSH connection")
                 self.vastai.block_instance(instance_id, reason="ssh-info-unavailable")
                 return False
-            
+
             logger.info(f"✅ Connected: {ssh_info['host']}:{ssh_info['port']}")
-            
+
             # Step 2: Start vLLM on remote GPU
             logger.info("Step 2: Starting vLLM on remote GPU...")
             vllm_host = vllm_manager.start_remote_vllm(ssh_info, instance_id)
-            
+
             if not vllm_host:
                 logger.error("Failed to start vLLM")
                 self.vastai.block_instance(instance_id, reason="vllm-start-failed")
                 return False
-            
+
             logger.info(f"✅ vLLM ready at {vllm_host}")
-            
+
             # Step 3: Register remote vLLM as MLNode
             logger.info("Step 3: Registering remote vLLM with Network Node...")
             if not self.check_inference_proxy_health():
                 logger.warning("⚠️ Inference proxy is down; proceeding with PoC registration")
             if not vllm_manager.register_remote_mlnode(vllm_host, instance_id):
                 logger.error("Failed to register remote MLNode")
-                vllm_manager.stop_remote_vllm(ssh_info)
                 return False
-            
+
+            registered = True
             logger.info("✅ Remote MLNode registered")
-            
+
             # Step 4: Wait for PoC to complete
             logger.info("Step 4: Monitoring PoC progress...")
-            success = vllm_manager.wait_for_poc_completion(timeout=900)
-            
+            success = vllm_manager.wait_for_poc_completion(instance_id, timeout=900)
+
             if success:
                 logger.info("✅ PoC Sprint completed!")
             else:
                 logger.warning("⚠️  PoC Sprint timed out")
-            
-            # Step 5: Cleanup
-            logger.info("Step 5: Cleanup...")
-            vllm_manager.unregister_remote_mlnode(instance_id)
-            vllm_manager.stop_remote_vllm(ssh_info)
-            self.ensure_inference_proxy_registered()
-            
-            logger.info("✅ Cleanup complete")
+
             return success
-            
+
         except Exception as e:
             logger.error(f"Error during PoC Sprint: {e}", exc_info=True)
+            self.vastai.block_instance(instance_id, reason="poc-sprint-error")
             return False
+        finally:
+            if vllm_manager and registered:
+                logger.info("Unregistering remote MLNode...")
+                vllm_manager.unregister_remote_mlnode(instance_id)
+            if vllm_manager and ssh_info:
+                logger.info("Stopping remote vLLM...")
+                vllm_manager.stop_remote_vllm(ssh_info)
+            self.ensure_inference_proxy_registered()
+            logger.info("Cleanup complete")
     
     def stop_gpu_instance(self, instance_id: int) -> bool:
         """Stop and destroy GPU instance"""
