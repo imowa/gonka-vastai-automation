@@ -11,9 +11,16 @@ from typing import Optional, Dict, List
 import logging
 from dataclasses import dataclass
 import os
-from dotenv import load_dotenv
+import sys
+from pathlib import Path
 
-load_dotenv('config/.env')
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from env_loader import load_env
+
+load_env('config/.env')
 
 logging.basicConfig(
     level=logging.INFO,
