@@ -12,13 +12,9 @@ from datetime import datetime
 from typing import Optional, Dict
 import logging
 
-try:
-    from dotenv import load_dotenv
-except ImportError:  # pragma: no cover - optional dependency already in requirements.txt
-    load_dotenv = None
+from env_loader import load_env
 
-if load_dotenv:
-    load_dotenv('config/.env')
+load_env('config/.env')
 
 logging.basicConfig(
     level=logging.INFO,
