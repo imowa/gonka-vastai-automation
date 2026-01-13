@@ -90,6 +90,7 @@ class PoCScheduler:
         self.proxy_poc_segment = os.getenv("POC_SEGMENT", "/api/v1")
         self.proxy_hardware_type = os.getenv("HARDWARE_TYPE", "Hyperbolic-API")
         self.proxy_hardware_count = int(os.getenv("HARDWARE_COUNT", "1"))
+        self.instance_ready_timeout = int(os.getenv("VASTAI_INSTANCE_READY_TIMEOUT", "1800"))
         
         # State
         self.current_session: Optional[PoCSession] = None
@@ -101,6 +102,11 @@ class PoCScheduler:
         logger.info(f"Max duration: {self.max_duration}s ({self.max_duration//3600} hours)")
         logger.info(f"Check interval: {self.check_interval}s ({self.check_interval//60} minutes)")
         logger.info(f"Max daily spend: ${self.max_daily_spend}")
+        logger.info(
+            "Instance ready timeout: %ss (%s minutes)",
+            self.instance_ready_timeout,
+            self.instance_ready_timeout // 60,
+        )
     
     def reset_daily_spend(self):
         """Reset daily spend counter at midnight"""
@@ -256,7 +262,7 @@ echo "Ready for PoC Sprint"
         logger.info(f"Instance {instance_id} created, waiting for ready state...")
         
         # Wait for instance to be ready
-        if not self.vastai.wait_for_ready(instance_id, timeout=600):
+        if not self.vastai.wait_for_ready(instance_id, timeout=self.instance_ready_timeout):
             logger.error(f"Instance {instance_id} failed to start")
             # Try to destroy failed instance
             self.vastai.destroy_instance(instance_id)
