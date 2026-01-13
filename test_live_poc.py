@@ -71,7 +71,13 @@ start_time = time.time()
 
 # Step 1: Find GPU
 print("\nStep 1: Searching for GPU...")
-offers = scheduler.vastai.search_offers(limit=5)
+blocked_offer_ids = scheduler.vastai.get_blocked_offer_ids()
+blocked_host_ids = scheduler.vastai.get_blocked_host_ids()
+offers = scheduler.vastai.search_offers(
+    limit=5,
+    exclude_offer_ids=blocked_offer_ids,
+    exclude_host_ids=blocked_host_ids,
+)
 valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
 
 if not valid_offers:
@@ -107,7 +113,7 @@ if args.max_cost is not None and estimated_cost > args.max_cost:
 
 # Step 2: Rent GPU
 print("\nStep 2: Renting GPU...")
-instance_id = scheduler.start_gpu_instance(best_offer.id)
+instance_id = scheduler.start_gpu_instance_with_retries(preferred_offer_id=best_offer.id)
 if not instance_id:
     print("❌ Failed to rent GPU")
     sys.exit(1)
