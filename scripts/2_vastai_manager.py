@@ -304,10 +304,23 @@ class VastAIManager:
             elapsed = int(time.time() - start_time)
             logger.info(f"Check #{check_count} ({elapsed}s): Instance status = {actual_status}")
             
-            # Check for ready states (multiple variations)
+            status_msg = str(status.get('status_msg', '')).lower()
+            if any(token in status_msg for token in ['download', 'pull', 'extract', 'image']):
+                logger.info(
+                    f"Instance {instance_id} is still downloading the image: {status_msg or 'waiting'}"
+                )
+                time.sleep(10)
+                continue
+
+            ssh_host = status.get('ssh_host')
+            ssh_port = status.get('ssh_port')
+
+            # Check for ready states (multiple variations) and SSH availability
             if actual_status in ['running', 'active', 'ready', 'started', 'success', 'true', '1']:
-                logger.info(f"✅ Instance {instance_id} is ready!")
-                return True
+                if ssh_host and ssh_port:
+                    logger.info(f"✅ Instance {instance_id} is ready and SSH is available!")
+                    return True
+                logger.info("Instance reported ready but SSH details are missing, waiting...")
             
             # Check for failure states
             if actual_status in ['failed', 'exited', 'error', 'terminated', 'destroyed', 'false', '0']:
