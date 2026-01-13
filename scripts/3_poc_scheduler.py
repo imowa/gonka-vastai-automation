@@ -92,7 +92,10 @@ class PoCScheduler:
         self.proxy_hardware_count = int(os.getenv("HARDWARE_COUNT", "1"))
         self.instance_ready_timeout = int(os.getenv("VASTAI_INSTANCE_READY_TIMEOUT", "1800"))
         self.instance_start_retries = int(os.getenv("VASTAI_START_RETRIES", "2"))
-        self.vastai_docker_image = os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest")
+        self.vastai_docker_image = os.getenv(
+            "DOCKER_IMAGE",
+            os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
+        )
         self.vastai_onstart_script = os.getenv("VASTAI_ONSTART_SCRIPT", "")
         
         # State

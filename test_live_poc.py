@@ -42,8 +42,8 @@ parser.add_argument(
 )
 parser.add_argument(
     "--docker-image",
-    default=os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
-    help="Docker image to use (default: vllm/vllm-openai:latest).",
+    default=os.getenv("DOCKER_IMAGE", os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest")),
+    help="Docker image to use (default: official MLNode image or vllm/vllm-openai:latest).",
 )
 parser.add_argument(
     "--wait-timeout",
@@ -61,6 +61,7 @@ args = parser.parse_args()
 if args.wait_timeout:
     os.environ["VLLM_STARTUP_TIMEOUT"] = str(args.wait_timeout)
 if args.docker_image:
+    os.environ["DOCKER_IMAGE"] = args.docker_image
     os.environ["VASTAI_DOCKER_IMAGE"] = args.docker_image
 
 logging.basicConfig(

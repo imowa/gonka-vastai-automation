@@ -165,10 +165,15 @@ VASTAI_GPU_TYPE=ANY
 VASTAI_MIN_VRAM=40
 VASTAI_MAX_PRICE=0.60
 VASTAI_DISK_SIZE=50
+DOCKER_IMAGE=ghcr.io/product-science/mlnode:3.0.11-post1@sha256:0cf224b2f88694def989731ecdd23950a6d899be5d70e01e8dcf823b906199af
 
 # Gonka admin API
 GONKA_ADMIN_API_URL=http://localhost:9200
 ```
+
+> ✅ The official MLNode image already includes vLLM and dependencies. No extra
+> installation or onstart script is required; the automation only needs to
+> start vLLM after the container is running.
 
 ### Step 3: Start Hyperbolic inference proxy
 
@@ -215,7 +220,7 @@ python3 test_live_poc.py --yes --estimated-minutes 15
 ```
 
 Optional flags:
-- `--docker-image vllm/vllm-openai:latest` to override the Vast.ai image
+- `--docker-image <image>` to override the Vast.ai image (default: `DOCKER_IMAGE`)
 - `--wait-timeout 1800` to extend the vLLM startup timeout (seconds)
 - `--skip-poc` to validate provisioning without running the PoC sprint
 
