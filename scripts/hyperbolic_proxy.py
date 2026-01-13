@@ -7,6 +7,7 @@ Implements all required ML Node API endpoints
 import os
 import json
 import httpx
+import logging
 from fastapi import FastAPI, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
@@ -15,15 +16,19 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 # Configuration
 NODE_ID = os.getenv("MLNODE_ID", os.getenv("NODE_ID", "hyperbolic-proxy-1"))
 VPS_IP = os.getenv("VPS_IP", "198.74.55.121")
 PROXY_PORT = int(os.getenv("HYPERBOLIC_PROXY_PORT", os.getenv("PROXY_PORT", "8080")))
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
-MODEL_NAME = os.getenv(
-    "HYPERBOLIC_MODEL",
-    os.getenv("MLNODE_MODEL", os.getenv("MODEL_NAME", "Qwen/QwQ-32B")),
+INFERENCE_MODEL = os.getenv(
+    "MLNODE_INFERENCE_MODEL",
+    os.getenv("HYPERBOLIC_MODEL", os.getenv("MODEL_NAME", "Qwen/QwQ-32B")),
 )
+MODEL_NAME = INFERENCE_MODEL
 HYPERBOLIC_BASE_URL = os.getenv("HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz")
 GONKA_ADMIN_API = os.getenv("GONKA_ADMIN_API_URL", os.getenv("GONKA_ADMIN_API", "http://localhost:9200"))
 INFERENCE_SEGMENT = os.getenv("INFERENCE_SEGMENT", "/v1")
@@ -58,6 +63,7 @@ def normalize_hyperbolic_base_url(raw_url: str) -> str:
 
 
 HYPERBOLIC_BASE_URL = normalize_hyperbolic_base_url(HYPERBOLIC_BASE_URL)
+logger.info("Hyperbolic Proxy using inference model: %s", MODEL_NAME)
 
 # ============================================================================
 # Gonka ML Node Required Endpoints
