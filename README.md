@@ -34,6 +34,91 @@ This project automates a **hybrid Gonka MLNode** that:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## PoC Workflow (Official Reference)
+
+The Gonka PoC (Proof-of-Compute) flow is implemented in the MLNode PoW package
+and is coordinated via MLNode REST endpoints. The network node only receives
+results; it does not run PoC compute or validation.
+
+### 1) MLNode runs PoC compute + validation
+
+Implementation references in the official MLNode repo:
+- PoC compute engine: `mlnode/packages/pow/src/pow/compute/`
+- PoC validation: `mlnode/packages/pow/src/pow/compute/compute.py`
+- PoC service orchestration: `mlnode/packages/pow/src/pow/service/manager.py`
+
+### 2) MLNode exposes PoC REST endpoints
+
+Canonical endpoints (OpenAPI):
+- `/api/v1/pow/init`
+- `/api/v1/pow/init/generate`
+- `/api/v1/pow/init/validate`
+- `/api/v1/pow/phase/generate`
+- `/api/v1/pow/phase/validate`
+- `/api/v1/pow/validate`
+- `/api/v1/pow/status`
+- `/api/v1/pow/stop`
+
+Authoritative OpenAPI spec source in the MLNode repo:
+- `mlnode/packages/api/docs/openapi.json`
+
+### 3) Init-generate payload (what PoC expects)
+
+From `mlnode/packages/pow/tests/init_generate.sh` and the OpenAPI schema:
+- `node_id`, `node_count`
+- `block_hash`, `block_height`
+- `public_key`
+- `batch_size`, `r_target`, `fraud_threshold`
+- `params` (model-specific)
+- `url` (callback receiver URL)
+
+### 4) Validation payload (ProofBatch)
+
+The `/api/v1/pow/validate` endpoint expects:
+- `public_key`
+- `block_hash`, `block_height`
+- `nonces` (array)
+- `dist` (array)
+
+### 5) Callback flow back to the network node
+
+MLNode pushes PoC batch results to the network node at:
+- `/v1/poc-batches` (base callback)
+
+The PoC server appends `/generated` or `/validated` to this base URL depending
+on phase.
+
+Callback payloads sent by MLNode:
+- `generated` callback uses `ProofBatch`:
+  - `public_key`
+  - `block_hash`, `block_height`
+  - `nonces` (array of int64)
+  - `dist` (array of float64)
+  - `node_id` (uint64)
+- `validated` callback uses `ValidatedBatch`:
+  - `ProofBatch` fields (above)
+  - `received_dist` (array of float64)
+  - `r_target` (float64)
+  - `fraud_threshold` (float64)
+  - `n_invalid` (int64)
+  - `probability_honest` (float64)
+  - `fraud_detected` (bool)
+
+### 6) Auth, timeouts, retries, and errors
+
+Auth:
+- PoC endpoints (`/api/v1/pow/*`) are called without auth headers.
+- Callbacks (`/v1/poc-batches/(generated|validated)`) do not check auth headers
+  or signatures; they bind JSON and process it.
+
+Timeouts and retries:
+- PoC HTTP client timeout is 15 minutes.
+- No retry/backoff is performed in the PoC request path.
+
+Callback error handling:
+- Invalid JSON returns `400 Bad Request`.
+- Chain submission errors surface as server errors.
+
 ## Prerequisites
 
 ### 1) VPS
