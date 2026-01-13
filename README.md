@@ -34,6 +34,38 @@ This project automates a **hybrid Gonka MLNode** that:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Dual Model Strategy
+
+This system uses an optimized dual-model approach:
+
+### PoC Sprint (Vast.ai GPU Rental)
+- **Model:** Qwen/Qwen2.5-7B-Instruct (small, efficient)
+- **Purpose:** Proof of Compute validation
+- **Hardware:** 1x RTX 4090 (24GB)
+- **Cost:** ~$0.23/hr (~$1-2/month for PoC sprints)
+- **Why small model:** PoC doesn't require the smartest model, just compute proof
+
+### Regular Inference (Hyperbolic API)
+- **Model:** Qwen/QwQ-32B (large, smart)
+- **Purpose:** Serving inference requests 24/7
+- **Hardware:** Managed by Hyperbolic (infinite scale)
+- **Cost:** ~$20-40/month based on usage
+- **Why large model:** Inference quality matters for user experience
+
+### Total Monthly Cost
+- **PoC GPU rental:** ~$1-2/month
+- **Inference API:** ~$20-40/month
+- **Total:** ~$21-42/month
+
+### Cost Comparison
+| Strategy | PoC | Inference | Total/mo |
+|----------|-----|-----------|----------|
+| 24/7 GPU (2x 4090) | $340 | - | ~$340 |
+| 24/7 GPU (1x 4090) | $170 | - | ~$170 |
+| **Our hybrid approach** | **$1-2** | **$20-40** | **~$21-42** ✅ |
+
+**Savings: ~88-94% compared to 24/7 GPU rental!**
+
 ## PoC Workflow (Official Reference)
 
 The Gonka PoC (Proof-of-Compute) flow is implemented in the MLNode PoW package
@@ -158,12 +190,18 @@ HYPERBOLIC_MODEL=Qwen/QwQ-32B
 HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz/v1
 HYPERBOLIC_PROXY_PORT=8080
 
+# Dual model config
+MLNODE_POC_MODEL=Qwen/Qwen2.5-7B-Instruct
+MLNODE_INFERENCE_MODEL=Qwen/QwQ-32B
+MLNODE_MODEL=${MLNODE_POC_MODEL}
+
 # Vast.ai (PoC rentals)
 VASTAI_API_KEY=your_vastai_api_key_here
 VASTAI_SSH_KEY_PATH=~/.ssh/id_rsa
 VASTAI_GPU_TYPE=ANY
-VASTAI_MIN_VRAM=40
-VASTAI_MAX_PRICE=0.60
+VASTAI_NUM_GPUS=1
+VASTAI_MIN_VRAM=24
+VASTAI_MAX_PRICE=0.30
 VASTAI_DISK_SIZE=50
 DOCKER_IMAGE=ghcr.io/product-science/mlnode:3.0.11-post1@sha256:0cf224b2f88694def989731ecdd23950a6d899be5d70e01e8dcf823b906199af
 
@@ -190,7 +228,7 @@ Default settings (override via environment variables):
 - `VPS_IP` (default: `198.74.55.121`)
 - `HYPERBOLIC_PROXY_PORT` or `PROXY_PORT` (default: `8080`)
 - `HYPERBOLIC_API_KEY` (required)
-- `HYPERBOLIC_MODEL`, `MLNODE_MODEL`, or `MODEL_NAME` (default: `Qwen/QwQ-32B`)
+- `MLNODE_INFERENCE_MODEL`, `HYPERBOLIC_MODEL`, or `MODEL_NAME` (default: `Qwen/QwQ-32B`)
 - `HYPERBOLIC_BASE_URL` (default: `https://api.hyperbolic.xyz`, accepts `/v1`)
 - `GONKA_ADMIN_API_URL` (default: `http://localhost:9200`)
 - `INFERENCE_SEGMENT` (default: `/v1`)

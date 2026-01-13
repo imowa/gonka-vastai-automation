@@ -73,18 +73,24 @@ class VastAIManager:
             'Content-Type': 'application/json'
         }
         
-        # Configuration from environment
+        # Configuration from environment (optimized for single GPU PoC)
         self.gpu_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
-        self.num_gpus = int(os.getenv('VASTAI_NUM_GPUS', '2'))
+        self.num_gpus = int(os.getenv('VASTAI_NUM_GPUS', '1'))
         self.min_vram = int(os.getenv('VASTAI_MIN_VRAM', '24'))
-        self.max_price = float(os.getenv('VASTAI_MAX_PRICE', '1.00'))
+        self.max_price = float(os.getenv('VASTAI_MAX_PRICE', '0.30'))
         self.disk_size = int(os.getenv('VASTAI_DISK_SIZE', '50'))
         self.blocked_instance_ids_path = Path("logs/blocked_instance_ids.json")
         self.blocked_host_ids_path = Path("logs/blocked_host_ids.json")
         self.blocked_offer_ids_path = Path("logs/blocked_offer_ids.json")
         
-        logger.info(f"Vast.ai Manager initialized")
-        logger.info(f"Target: {self.num_gpus}x {self.gpu_type}, Max price: ${self.max_price}/hr")
+        logger.info("Vast.ai Manager initialized")
+        logger.info(
+            "Target: %sx %s, Max price: $%s/hr",
+            self.num_gpus,
+            self.gpu_type,
+            self.max_price,
+        )
+        logger.info("Optimized for PoC workload (small model)")
 
     def _ensure_logs_dir(self) -> None:
         self.blocked_instance_ids_path.parent.mkdir(parents=True, exist_ok=True)

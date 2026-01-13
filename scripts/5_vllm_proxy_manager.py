@@ -39,17 +39,22 @@ class RemoteVLLMManager:
     def __init__(self):
         self.admin_api_url = os.getenv('GONKA_ADMIN_API_URL', 'http://localhost:9200')
         self.ssh_key_path = os.path.expanduser(os.getenv('VASTAI_SSH_KEY_PATH', '~/.ssh/id_rsa'))
-        self.vllm_model = os.getenv('MLNODE_MODEL', 'Qwen/Qwen2.5-7B-Instruct')
+        self.poc_model = os.getenv(
+            'MLNODE_POC_MODEL',
+            os.getenv('MLNODE_MODEL', 'Qwen/Qwen2.5-7B-Instruct'),
+        )
+        self.inference_model = os.getenv('MLNODE_INFERENCE_MODEL', self.poc_model)
+        self.vllm_model = self.poc_model
         self.inference_port = int(os.getenv('MLNODE_INFERENCE_PORT', '8000'))
         self.poc_port = int(os.getenv('MLNODE_POC_PORT', str(self.inference_port)))
         self.inference_segment = os.getenv('MLNODE_INFERENCE_SEGMENT', '/v1')
         self.poc_segment = os.getenv('MLNODE_POC_SEGMENT', self.inference_segment)
         self.hardware_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
-        self.hardware_count = int(os.getenv('VASTAI_NUM_GPUS', '2'))
+        self.hardware_count = int(os.getenv('VASTAI_NUM_GPUS', '1'))
         self.ssh_ready_timeout = int(os.getenv('VASTAI_SSH_READY_TIMEOUT', '900'))
         self.ssh_auth_grace = int(os.getenv('VASTAI_SSH_AUTH_GRACE', '300'))
         self.quantization = os.getenv('MLNODE_QUANTIZATION', '').strip()
-        self.vllm_startup_timeout = int(os.getenv('VLLM_STARTUP_TIMEOUT', '1800'))
+        self.vllm_startup_timeout = int(os.getenv('VLLM_STARTUP_TIMEOUT', '1500'))
         self.vllm_model_download_timeout = int(os.getenv('VLLM_MODEL_DOWNLOAD_TIMEOUT', '1200'))
         self.vllm_max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))
         self.vllm_gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTIL', '0.9'))
@@ -61,6 +66,9 @@ class RemoteVLLMManager:
         self.vllm_models_endpoint = os.getenv('VLLM_MODELS_ENDPOINT', '/v1/models')
         
         logger.info("Remote vLLM Manager initialized")
+        logger.info("PoC model: %s", self.poc_model)
+        logger.info("Inference model: %s", self.inference_model)
+        logger.info("Using model for GPU: %s", self.vllm_model)
         logger.info(
             "SSH ready timeout: %ss (%s minutes)",
             self.ssh_ready_timeout,
@@ -273,7 +281,7 @@ class RemoteVLLMManager:
         logger.info("Compute capability %.1f does not support fp8; skipping quantization", cap_value)
         return ""
 
-    def _build_vllm_start_command(self, quant_flag: str) -> str:
+    def _build_vllm_start_command(self, quant_flag: str, tensor_parallel_flag: str) -> str:
         """Build the vLLM startup command."""
         return (
             "python3 -m vllm.entrypoints.openai.api_server "
@@ -282,7 +290,7 @@ class RemoteVLLMManager:
             f"--port {self.inference_port} "
             "--host 0.0.0.0 "
             f"{quant_flag} "
-            f"--tensor-parallel-size {self.hardware_count} "
+            f"{tensor_parallel_flag} "
             f"--gpu-memory-utilization {self.vllm_gpu_memory_util} "
             f"--max-num-seqs {self.vllm_max_num_seqs} "
             f"--max-model-len {self.vllm_max_model_len}"
@@ -334,11 +342,18 @@ class RemoteVLLMManager:
         self.ssh_execute(ssh_info, "pkill -f vllm.entrypoints || true", timeout=10)
 
         quant_flag = self._determine_quantization_flag(gpu_name, compute_cap)
-        start_command = self._build_vllm_start_command(quant_flag)
+        if self.hardware_count > 1:
+            tensor_parallel_flag = f"--tensor-parallel-size {self.hardware_count}"
+            logger.info("Using tensor parallelism across %s GPUs", self.hardware_count)
+        else:
+            tensor_parallel_flag = ""
+            logger.info("Using single GPU (no tensor parallelism)")
+        start_command = self._build_vllm_start_command(quant_flag, tensor_parallel_flag)
 
         startup_script = f"""#!/bin/bash
 export PATH=/usr/local/bin:/usr/bin:/bin
 echo "Starting vLLM at $(date)" > {self.vllm_startup_log_path}
+echo "Purpose: PoC sprint computation" >> {self.vllm_startup_log_path}
 echo "Model: {self.vllm_model}" >> {self.vllm_startup_log_path}
 echo "GPU: {gpu_name} (Compute {compute_cap})" >> {self.vllm_startup_log_path}
 echo "Hardware count: {self.hardware_count} GPUs" >> {self.vllm_startup_log_path}
