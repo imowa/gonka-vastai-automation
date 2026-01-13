@@ -36,8 +36,14 @@ class RemoteVLLMManager:
         self.poc_segment = os.getenv('MLNODE_POC_SEGMENT', self.inference_segment)
         self.hardware_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
         self.hardware_count = int(os.getenv('VASTAI_NUM_GPUS', '2'))
+        self.ssh_ready_timeout = int(os.getenv('VASTAI_SSH_READY_TIMEOUT', '900'))
         
         logger.info("Remote vLLM Manager initialized")
+        logger.info(
+            "SSH ready timeout: %ss (%s minutes)",
+            self.ssh_ready_timeout,
+            self.ssh_ready_timeout // 60,
+        )
     
     def get_ssh_connection(self, vastai_manager, instance_id: int) -> Optional[Dict]:
         """Get SSH connection details from Vast.ai instance"""
@@ -180,7 +186,7 @@ class RemoteVLLMManager:
         
         # Step 0: Wait for SSH to be ready
         logger.info("Step 0: Waiting for SSH to be ready...")
-        if not self.wait_for_ssh_ready(ssh_info, max_wait=300):
+        if not self.wait_for_ssh_ready(ssh_info, max_wait=self.ssh_ready_timeout):
             logger.error("SSH failed to be ready")
             return None
         
