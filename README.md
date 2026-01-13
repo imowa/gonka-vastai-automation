@@ -83,11 +83,6 @@ VASTAI_DISK_SIZE=50
 
 # Gonka admin API
 GONKA_ADMIN_API_URL=http://localhost:9200
-
-# Gonka network RPC (epoch monitor)
-GONKA_NETWORK_NODE_URL=http://<your-node>:8000
-GONKA_API_TIMEOUT=10
-GONKA_API_RETRIES=3
 ```
 
 ### Step 3: Start Hyperbolic inference proxy
