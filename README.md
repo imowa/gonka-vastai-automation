@@ -120,6 +120,24 @@ python3 scripts/3_poc_scheduler.py
 
 The scheduler monitors the chain and spins up Vast.ai GPUs for PoC windows.
 
+### Step 5: Run a live PoC test (manual)
+
+Use the live test script to validate GPU rental, vLLM startup, and PoC flow.
+
+```bash
+source venv/bin/activate
+python3 test_live_poc.py --yes --estimated-minutes 15
+```
+
+Optional flags:
+- `--docker-image vllm/vllm-openai:latest` to override the Vast.ai image
+- `--wait-timeout 1800` to extend the vLLM startup timeout (seconds)
+- `--skip-poc` to validate provisioning without running the PoC sprint
+
+If vLLM fails during engine initialization, consider setting `VLLM_EXTRA_ARGS` in
+`config/.env` with safer flags (for example `--enforce-eager` or
+`--disable-custom-all-reduce`) and retrying the live test.
+
 ## Key Scripts
 
 - `scripts/hyperbolic_proxy.py`: Hyperbolic inference proxy + MLNode endpoints
