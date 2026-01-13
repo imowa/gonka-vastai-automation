@@ -11,7 +11,6 @@ import json
 import logging
 import paramiko
 import requests
-import urllib.parse
 from typing import Optional, Dict
 from dotenv import load_dotenv
 
@@ -31,6 +30,12 @@ class RemoteVLLMManager:
         self.admin_api_url = os.getenv('GONKA_ADMIN_API_URL', 'http://localhost:9200')
         self.ssh_key_path = os.path.expanduser(os.getenv('VASTAI_SSH_KEY_PATH', '~/.ssh/id_rsa'))
         self.vllm_model = os.getenv('MLNODE_MODEL', 'Qwen/Qwen2.5-7B-Instruct')
+        self.inference_port = int(os.getenv('MLNODE_INFERENCE_PORT', '8000'))
+        self.poc_port = int(os.getenv('MLNODE_POC_PORT', str(self.inference_port)))
+        self.inference_segment = os.getenv('MLNODE_INFERENCE_SEGMENT', '/v1')
+        self.poc_segment = os.getenv('MLNODE_POC_SEGMENT', self.inference_segment)
+        self.hardware_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
+        self.hardware_count = int(os.getenv('VASTAI_NUM_GPUS', '2'))
         
         logger.info("Remote vLLM Manager initialized")
     
@@ -338,17 +343,17 @@ echo "vLLM startup script launched"
             return None
         
         # Return the SSH gateway URL
-        vllm_gateway = f"http://{ssh_info['host']}:{ssh_info['port']}"
-        logger.info(f"✅ vLLM is ready at {vllm_gateway} (via SSH tunnel)")
+        vllm_host = ssh_info['host']
+        logger.info(f"✅ vLLM is ready at {vllm_host}:{self.inference_port}")
         
-        return vllm_gateway
+        return vllm_host
     
-    def register_remote_mlnode(self, vllm_gateway: str, instance_id: int) -> bool:
+    def register_remote_mlnode(self, vllm_host: str, instance_id: int) -> bool:
         """
         Register remote vLLM as MLNode with Network Node
         
         Args:
-            vllm_gateway: SSH gateway URL (ssh_host:ssh_port)
+            vllm_host: Hostname or IP for remote vLLM
             instance_id: Vast.ai instance ID (for unique node ID)
         
         Returns:
@@ -358,29 +363,22 @@ echo "vLLM startup script launched"
         
         node_id = f"vastai-{instance_id}"
         
-        # Parse the SSH gateway URL
-        parsed = urllib.parse.urlparse(vllm_gateway)
-        ssh_host = parsed.hostname
-        ssh_port = parsed.port or 22
-        
-        # Network Node needs to know this is a remote vLLM via SSH
         payload = {
             "id": node_id,
-            "host": f"http://{ssh_host}",
-            "inference_port": ssh_port,
-            "poc_port": ssh_port,
+            "host": vllm_host,
+            "inference_port": self.inference_port,
+            "inference_segment": self.inference_segment,
+            "poc_port": self.poc_port,
+            "poc_segment": self.poc_segment,
             "max_concurrent": 100,
             "models": {
                 self.vllm_model: {
                     "args": ["--quantization", "fp8", "--gpu-memory-utilization", "0.9"]
                 }
             },
-            "metadata": {
-                "remote": True,
-                "ssh_tunnel": True,
-                "vllm_port": 8000,
-                "instance_id": instance_id
-            }
+            "hardware": [
+                {"type": self.hardware_type, "count": self.hardware_count}
+            ]
         }
         
         try:
