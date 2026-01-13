@@ -282,6 +282,7 @@ class RemoteVLLMManager:
             f"--port {self.inference_port} "
             "--host 0.0.0.0 "
             f"{quant_flag} "
+            f"--tensor-parallel-size {self.hardware_count} "
             f"--gpu-memory-utilization {self.vllm_gpu_memory_util} "
             f"--max-num-seqs {self.vllm_max_num_seqs} "
             f"--max-model-len {self.vllm_max_model_len}"
@@ -340,6 +341,7 @@ export PATH=/usr/local/bin:/usr/bin:/bin
 echo "Starting vLLM at $(date)" > {self.vllm_startup_log_path}
 echo "Model: {self.vllm_model}" >> {self.vllm_startup_log_path}
 echo "GPU: {gpu_name} (Compute {compute_cap})" >> {self.vllm_startup_log_path}
+echo "Hardware count: {self.hardware_count} GPUs" >> {self.vllm_startup_log_path}
 echo "Quantization: {quant_flag or 'none'}" >> {self.vllm_startup_log_path}
 {start_command} > {self.vllm_log_path} 2>&1 &
 VLLM_PID=$!
