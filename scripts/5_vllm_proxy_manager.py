@@ -401,6 +401,16 @@ class RemoteVLLMManager:
                 timeout=10
             )
             logger.error(f"vLLM error logs:\n{stdout}")
+
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info,
+                "tail -200 /tmp/vllm_startup.log",
+                timeout=10
+            )
+            if stdout.strip():
+                logger.error(f"vLLM startup logs:\n{stdout}")
+            else:
+                logger.error("vLLM startup logs are empty")
             
             return None
         
