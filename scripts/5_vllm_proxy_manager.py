@@ -372,6 +372,13 @@ echo "vLLM launched with PID $(cat {self.vllm_pid_path})" >> {self.vllm_startup_
                     logger.info("✅ vLLM API is responding!")
                     vllm_ready = True
                     break
+            elif i % 12 == 0:
+                recent_logs = self._tail_remote_log(ssh_info, self.vllm_log_path, lines=20)
+                if recent_logs:
+                    logger.warning("vLLM process not running. Recent logs: %s", recent_logs)
+                startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=50)
+                if startup_logs:
+                    logger.warning("vLLM startup logs: %s", startup_logs)
 
             if i % 12 == 0:
                 elapsed = int(time.time() - startup_start)
@@ -391,8 +398,8 @@ echo "vLLM launched with PID $(cat {self.vllm_pid_path})" >> {self.vllm_startup_
         if not vllm_ready:
             logger.error("vLLM failed to start in time")
 
-            logger.error("vLLM error logs:\n%s", self._tail_remote_log(ssh_info, self.vllm_log_path, lines=50))
-            startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=200)
+            logger.error("vLLM error logs:\n%s", self._tail_remote_log(ssh_info, self.vllm_log_path, lines=200))
+            startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=300)
             if startup_logs:
                 logger.error("vLLM startup logs:\n%s", startup_logs)
             else:
