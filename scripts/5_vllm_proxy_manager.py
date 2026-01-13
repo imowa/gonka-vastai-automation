@@ -37,6 +37,8 @@ class RemoteVLLMManager:
         self.hardware_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
         self.hardware_count = int(os.getenv('VASTAI_NUM_GPUS', '2'))
         self.ssh_ready_timeout = int(os.getenv('VASTAI_SSH_READY_TIMEOUT', '900'))
+        self.ssh_auth_grace = int(os.getenv('VASTAI_SSH_AUTH_GRACE', '300'))
+        self.quantization = os.getenv('MLNODE_QUANTIZATION', '').strip()
         
         logger.info("Remote vLLM Manager initialized")
         logger.info(
@@ -100,8 +102,23 @@ class RemoteVLLMManager:
         
         start_time = time.time()
         attempt = 0
+        auth_failures = 0
+        grace_applied = False
         
-        while time.time() - start_time < max_wait:
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed >= max_wait:
+                if auth_failures > 0 and not grace_applied and self.ssh_auth_grace > 0:
+                    max_wait += self.ssh_auth_grace
+                    grace_applied = True
+                    logger.warning(
+                        "SSH auth failures detected; extending SSH ready timeout by %ss (total %ss).",
+                        self.ssh_auth_grace,
+                        max_wait,
+                    )
+                else:
+                    break
+
             attempt += 1
             try:
                 ssh = paramiko.SSHClient()
@@ -130,6 +147,18 @@ class RemoteVLLMManager:
                 else:
                     logger.warning(f"SSH connection established but command failed")
             
+            except paramiko.ssh_exception.AuthenticationException:
+                auth_failures += 1
+                elapsed = int(time.time() - start_time)
+
+                if attempt % 6 == 0:  # Log every 30 seconds
+                    logger.info(
+                        "SSH auth not ready yet (%ss elapsed, %s auth failures)... Retrying",
+                        elapsed,
+                        auth_failures,
+                    )
+
+                time.sleep(5)
             except Exception as e:
                 elapsed = int(time.time() - start_time)
                 
@@ -252,33 +281,61 @@ class RemoteVLLMManager:
         self.ssh_execute(ssh_info, "pkill -f vllm.entrypoints || true", timeout=10)
         
         # Create a startup script
+        quantization_strategy = self.quantization.lower()
         startup_script = f"""#!/bin/bash
-cd /tmp
-cat > start_vllm.sh << 'EOF'
-#!/bin/bash
-export PATH=/usr/local/bin:/usr/bin:/bin
-export PYTHONPATH=/usr/local/lib/python3.10/dist-packages
+	cd /tmp
+	cat > start_vllm.sh << 'EOF'
+	#!/bin/bash
+	export PATH=/usr/local/bin:/usr/bin:/bin
 
-echo "Starting vLLM with model: {self.vllm_model}"
-python3 -m vllm.entrypoints.openai.api_server \\
-    --model {self.vllm_model} \\
-    --dtype auto \\
-    --port 8000 \\
-    --host 0.0.0.0 \\
-    --quantization fp8 \\
-    --gpu-memory-utilization 0.9 \\
-    --max-num-seqs 256 \\
-    --max-model-len 4096 \\
-    > /tmp/vllm.log 2>&1 &
-    
-VLLM_PID=$!
-echo "vLLM started with PID: $VLLM_PID"
-echo $VLLM_PID > /tmp/vllm.pid
-EOF
+	QUANT_FLAG=""
+	QUANT_STRATEGY="{quantization_strategy}"
+	if [ -n "$QUANT_STRATEGY" ]; then
+	    if [ "$QUANT_STRATEGY" = "auto" ]; then
+	        if command -v nvidia-smi >/dev/null 2>&1; then
+	            COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n1 | tr -d ' ')
+	            if [ -n "$COMPUTE_CAP" ] && COMPUTE_CAP="$COMPUTE_CAP" python3 - <<-'PY'
+	import os
+	import sys
 
-chmod +x start_vllm.sh
-nohup ./start_vllm.sh > /tmp/vllm_startup.log 2>&1 &
-echo "vLLM startup script launched"
+	cap = os.environ.get("COMPUTE_CAP", "0").strip()
+	try:
+	    major, minor = cap.split(".", 1)
+	    value = float(f"{major}.{minor}")
+	except ValueError:
+	    value = 0
+
+	sys.exit(0 if value >= 8.9 else 1)
+	PY
+	            then
+	                QUANT_FLAG="--quantization fp8"
+	            fi
+	        fi
+	    else
+	        QUANT_FLAG="--quantization {self.quantization}"
+	    fi
+	fi
+
+	echo "Starting vLLM with model: {self.vllm_model}"
+	python3 -m vllm.entrypoints.openai.api_server \\
+	    --model {self.vllm_model} \\
+	    --dtype auto \\
+	    --port 8000 \\
+	    --host 0.0.0.0 \\
+	    $QUANT_FLAG \\
+	    --gpu-memory-utilization 0.9 \\
+	    --max-num-seqs 256 \\
+	    --max-model-len 4096 \\
+	    > /tmp/vllm.log 2>&1 &
+	    
+	VLLM_PID=$!
+	echo "vLLM started with PID: $VLLM_PID"
+	echo $VLLM_PID > /tmp/vllm.pid
+	EOF
+
+	chmod +x start_vllm.sh
+	nohup ./start_vllm.sh > /tmp/vllm_startup.log 2>&1 &
+	echo "vLLM startup script launched"
 """
         
         exit_code, stdout, stderr = self.ssh_execute(ssh_info, startup_script, timeout=60)
@@ -369,6 +426,10 @@ echo "vLLM startup script launched"
         
         node_id = f"vastai-{instance_id}"
         
+        model_args = []
+        if self.quantization and self.quantization.lower() != "auto":
+            model_args = ["--quantization", self.quantization]
+
         payload = {
             "id": node_id,
             "host": vllm_host,
@@ -379,7 +440,7 @@ echo "vLLM startup script launched"
             "max_concurrent": 100,
             "models": {
                 self.vllm_model: {
-                    "args": ["--quantization", "fp8", "--gpu-memory-utilization", "0.9"]
+                    "args": model_args + ["--gpu-memory-utilization", "0.9"]
                 }
             },
             "hardware": [
