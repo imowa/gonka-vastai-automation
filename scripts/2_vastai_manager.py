@@ -51,6 +51,17 @@ class VastAIManager:
     """Manager for Vast.ai GPU instances"""
     
     BASE_URL = "https://console.vast.ai/api/v0"
+    FP8_CAPABLE_GPUS = {
+        "RTX_4090",
+        "RTX_4080",
+        "RTX_4080_Super",
+        "RTX_4070_Ti",
+        "RTX_4070_Ti_Super",
+        "H100",
+        "H100_PCIe",
+        "L40S",
+        "L40",
+    }
     
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv('VASTAI_API_KEY')
@@ -64,7 +75,7 @@ class VastAIManager:
         
         # Configuration from environment
         self.gpu_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
-        self.num_gpus = 2  # We need 2 GPUs for PoC
+        self.num_gpus = int(os.getenv('VASTAI_NUM_GPUS', '2'))
         self.min_vram = int(os.getenv('VASTAI_MIN_VRAM', '24'))
         self.max_price = float(os.getenv('VASTAI_MAX_PRICE', '1.00'))
         self.disk_size = int(os.getenv('VASTAI_DISK_SIZE', '50'))
@@ -195,6 +206,16 @@ class VastAIManager:
             List of VastInstance objects sorted by price
         """
         logger.info(f"Searching for {self.num_gpus}x {self.gpu_type} instances...")
+
+        quantization = os.getenv('MLNODE_QUANTIZATION', '').lower()
+        if quantization == 'auto' and self.gpu_type != 'ANY':
+            if self.gpu_type not in self.FP8_CAPABLE_GPUS:
+                logger.warning(
+                    "⚠️  GPU type '%s' may not support FP8 quantization. "
+                    "Recommended GPUs: %s",
+                    self.gpu_type,
+                    ", ".join(sorted(self.FP8_CAPABLE_GPUS)),
+                )
         
         try:
             # Build search query
@@ -228,6 +249,11 @@ class VastAIManager:
                     continue
                 if excluded_hosts and offer.get('host_id') in excluded_hosts:
                     continue
+                if quantization == 'auto':
+                    gpu_name_normalized = offer['gpu_name'].replace(' ', '_').replace('-', '_')
+                    if gpu_name_normalized not in self.FP8_CAPABLE_GPUS:
+                        logger.debug("Skipping %s - not FP8 capable", offer['gpu_name'])
+                        continue
                 instance = VastInstance(
                     id=offer['id'],
                     status=offer.get('machine_status', 'unknown'),
@@ -274,8 +300,8 @@ class VastAIManager:
         
         try:
             resolved_image = image or os.getenv(
-                "VASTAI_DOCKER_IMAGE",
-                "vllm/vllm-openai:latest",
+                "DOCKER_IMAGE",
+                os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
             )
             data = {
                 'client_id': 'me',
