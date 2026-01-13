@@ -7,9 +7,18 @@ Monitors Gonka blockchain to detect when PoC Sprint is about to start.
 import requests
 import time
 import json
+import os
 from datetime import datetime
 from typing import Optional, Dict
 import logging
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency already in requirements.txt
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv('config/.env')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,23 +32,39 @@ class PoCMonitor:
     
     def __init__(
         self,
-        node_url: str = "http://node2.gonka.ai:8000",
-        check_interval: int = 300
+        node_url: Optional[str] = None,
+        check_interval: int = 300,
+        request_timeout: Optional[int] = None,
+        max_retries: Optional[int] = None
     ):
-        self.node_url = node_url
+        self.node_url = node_url or os.getenv('GONKA_NETWORK_NODE_URL', "http://node2.gonka.ai:8000")
         self.check_interval = check_interval
+        self.request_timeout = request_timeout or int(os.getenv('GONKA_API_TIMEOUT', '10'))
+        self.max_retries = max_retries or int(os.getenv('GONKA_API_RETRIES', '3'))
         self.last_epoch = None
         
     def get_current_epoch(self) -> Optional[Dict]:
         """Fetch current epoch information from Gonka node"""
-        try:
-            url = f"{self.node_url}/api/v1/epochs/latest"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            logger.error(f"Failed to fetch epoch data: {e}")
-            return None
+        url = f"{self.node_url}/api/v1/epochs/latest"
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = requests.get(url, timeout=self.request_timeout)
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as e:
+                if attempt < self.max_retries:
+                    backoff = min(2 ** (attempt - 1), 8)
+                    logger.warning(
+                        "Failed to fetch epoch data (attempt %s/%s): %s. Retrying in %ss",
+                        attempt,
+                        self.max_retries,
+                        e,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                else:
+                    logger.error(f"Failed to fetch epoch data: {e}")
+        return None
     
     def calculate_time_to_poc(self, epoch_data: Dict) -> Optional[int]:
         """
