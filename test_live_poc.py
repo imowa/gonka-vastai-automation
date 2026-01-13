@@ -23,7 +23,38 @@ parser.add_argument(
     action="store_true",
     help="Skip the confirmation prompt.",
 )
+parser.add_argument(
+    "--estimated-minutes",
+    type=int,
+    default=15,
+    help="Estimated runtime for cost calculation (minutes).",
+)
+parser.add_argument(
+    "--max-cost",
+    type=float,
+    default=None,
+    help="Abort if estimated cost exceeds this amount.",
+)
+parser.add_argument(
+    "--skip-poc",
+    action="store_true",
+    help="Skip the PoC sprint execution after renting the GPU.",
+)
+parser.add_argument(
+    "--keep-instance",
+    action="store_true",
+    help="Leave the GPU instance running instead of stopping it.",
+)
 args = parser.parse_args()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("test_live_poc")
+
+os.makedirs("logs", exist_ok=True)
+INSTANCE_ID_PATH = os.path.join("logs", "last_instance_id.txt")
 
 print("\n" + "="*60)
 print("  LIVE POC TEST")
