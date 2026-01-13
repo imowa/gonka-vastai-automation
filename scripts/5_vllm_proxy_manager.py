@@ -101,8 +101,23 @@ class RemoteVLLMManager:
         
         start_time = time.time()
         attempt = 0
+        auth_failures = 0
+        grace_applied = False
         
-        while time.time() - start_time < max_wait:
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed >= max_wait:
+                if auth_failures > 0 and not grace_applied and self.ssh_auth_grace > 0:
+                    max_wait += self.ssh_auth_grace
+                    grace_applied = True
+                    logger.warning(
+                        "SSH auth failures detected; extending SSH ready timeout by %ss (total %ss).",
+                        self.ssh_auth_grace,
+                        max_wait,
+                    )
+                else:
+                    break
+
             attempt += 1
             try:
                 ssh = paramiko.SSHClient()
@@ -131,6 +146,18 @@ class RemoteVLLMManager:
                 else:
                     logger.warning(f"SSH connection established but command failed")
             
+            except paramiko.ssh_exception.AuthenticationException:
+                auth_failures += 1
+                elapsed = int(time.time() - start_time)
+
+                if attempt % 6 == 0:  # Log every 30 seconds
+                    logger.info(
+                        "SSH auth not ready yet (%ss elapsed, %s auth failures)... Retrying",
+                        elapsed,
+                        auth_failures,
+                    )
+
+                time.sleep(5)
             except Exception as e:
                 elapsed = int(time.time() - start_time)
                 
