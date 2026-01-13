@@ -37,6 +37,7 @@ class RemoteVLLMManager:
         self.hardware_type = os.getenv('VASTAI_GPU_TYPE', 'RTX_4090')
         self.hardware_count = int(os.getenv('VASTAI_NUM_GPUS', '2'))
         self.ssh_ready_timeout = int(os.getenv('VASTAI_SSH_READY_TIMEOUT', '900'))
+        self.ssh_auth_grace = int(os.getenv('VASTAI_SSH_AUTH_GRACE', '0'))
         self.quantization = os.getenv('MLNODE_QUANTIZATION', '').strip()
         
         logger.info("Remote vLLM Manager initialized")
@@ -401,6 +402,16 @@ class RemoteVLLMManager:
                 timeout=10
             )
             logger.error(f"vLLM error logs:\n{stdout}")
+
+            exit_code, stdout, stderr = self.ssh_execute(
+                ssh_info,
+                "tail -200 /tmp/vllm_startup.log",
+                timeout=10
+            )
+            if stdout.strip():
+                logger.error(f"vLLM startup logs:\n{stdout}")
+            else:
+                logger.error("vLLM startup logs are empty")
             
             return None
         
