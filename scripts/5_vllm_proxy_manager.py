@@ -239,6 +239,29 @@ class RemoteVLLMManager:
         logger.info("Auto-detecting quantization strategy based on GPU capability")
         exit_code, stdout, stderr = self.ssh_execute(
             ssh_info,
+            "nvidia-smi --query-gpu=name --format=csv,noheader | head -n1",
+            timeout=10,
+        )
+        gpu_name = stdout.strip() if exit_code == 0 else ""
+        if gpu_name:
+            logger.info("Detected GPU name: %s", gpu_name)
+        else:
+            logger.warning("Unable to detect GPU name: %s", stderr.strip())
+
+        fp8_supported_gpus = (
+            "H100",
+            "H200",
+            "H800",
+            "H20",
+            "B100",
+            "B200",
+        )
+        if gpu_name and not any(token in gpu_name for token in fp8_supported_gpus):
+            logger.info("GPU does not match FP8-capable list; skipping quantization")
+            return ""
+
+        exit_code, stdout, stderr = self.ssh_execute(
+            ssh_info,
             "nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n1",
             timeout=10,
         )
