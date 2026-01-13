@@ -134,10 +134,6 @@ Optional flags:
 - `--wait-timeout 1800` to extend the vLLM startup timeout (seconds)
 - `--skip-poc` to validate provisioning without running the PoC sprint
 
-If vLLM fails during engine initialization, consider setting `VLLM_EXTRA_ARGS` in
-`config/.env` with safer flags (for example `--enforce-eager` or
-`--disable-custom-all-reduce`) and retrying the live test.
-
 ## Key Scripts
 
 - `scripts/hyperbolic_proxy.py`: Hyperbolic inference proxy + MLNode endpoints

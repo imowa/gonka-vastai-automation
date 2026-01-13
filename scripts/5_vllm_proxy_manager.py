@@ -46,14 +46,6 @@ class RemoteVLLMManager:
         self.vllm_pid_path = os.getenv('VLLM_PID_PATH', '/tmp/vllm.pid')
         self.vllm_health_endpoint = os.getenv('VLLM_HEALTH_ENDPOINT', '/v1/health')
         self.vllm_models_endpoint = os.getenv('VLLM_MODELS_ENDPOINT', '/v1/models')
-        self.vllm_max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))
-        self.vllm_gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTIL', '0.9'))
-        self.vllm_max_num_seqs = int(os.getenv('VLLM_MAX_NUM_SEQS', '256'))
-        self.vllm_tensor_parallel = int(
-            os.getenv('VLLM_TENSOR_PARALLEL_SIZE', str(self.hardware_count))
-        )
-        self.vllm_trust_remote_code = os.getenv('VLLM_TRUST_REMOTE_CODE', 'false').lower() == 'true'
-        self.vllm_extra_args = os.getenv('VLLM_EXTRA_ARGS', '').strip()
         
         logger.info("Remote vLLM Manager initialized")
         logger.info(
@@ -269,11 +261,6 @@ class RemoteVLLMManager:
 
     def _build_vllm_start_command(self, quant_flag: str) -> str:
         """Build the vLLM startup command."""
-        trust_remote_code_flag = "--trust-remote-code" if self.vllm_trust_remote_code else ""
-        tensor_parallel_flag = ""
-        if self.vllm_tensor_parallel > 1:
-            tensor_parallel_flag = f"--tensor-parallel-size {self.vllm_tensor_parallel}"
-        extra_args = f" {self.vllm_extra_args}".rstrip()
         return (
             "python3 -m vllm.entrypoints.openai.api_server "
             f"--model {self.vllm_model} "
@@ -281,12 +268,9 @@ class RemoteVLLMManager:
             f"--port {self.inference_port} "
             "--host 0.0.0.0 "
             f"{quant_flag} "
-            f"--gpu-memory-utilization {self.vllm_gpu_memory_util} "
-            f"--max-num-seqs {self.vllm_max_num_seqs} "
-            f"--max-model-len {self.vllm_max_model_len} "
-            f"{tensor_parallel_flag} "
-            f"{trust_remote_code_flag}"
-            f"{extra_args}"
+            "--gpu-memory-utilization 0.9 "
+            "--max-num-seqs 256 "
+            "--max-model-len 4096"
         )
     
     def start_remote_vllm(self, ssh_info: Dict, instance_id: int) -> Optional[str]:
@@ -407,20 +391,12 @@ echo "vLLM launched with PID $(cat {self.vllm_pid_path})" >> {self.vllm_startup_
         if not vllm_ready:
             logger.error("vLLM failed to start in time")
 
-            vllm_error_logs = self._tail_remote_log(ssh_info, self.vllm_log_path, lines=50)
-            logger.error("vLLM error logs:\n%s", vllm_error_logs)
+            logger.error("vLLM error logs:\n%s", self._tail_remote_log(ssh_info, self.vllm_log_path, lines=50))
             startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=200)
             if startup_logs:
                 logger.error("vLLM startup logs:\n%s", startup_logs)
             else:
                 logger.error("vLLM startup logs are empty")
-
-            if "Engine core initialization failed" in vllm_error_logs:
-                logger.error(
-                    "Detected vLLM engine core initialization failure. Consider setting "
-                    "VLLM_EXTRA_ARGS to include safer flags like '--enforce-eager' or "
-                    "'--disable-custom-all-reduce'."
-                )
 
             return None
         
