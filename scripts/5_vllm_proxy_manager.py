@@ -239,6 +239,29 @@ class RemoteVLLMManager:
         logger.info("Auto-detecting quantization strategy based on GPU capability")
         exit_code, stdout, stderr = self.ssh_execute(
             ssh_info,
+            "nvidia-smi --query-gpu=name --format=csv,noheader | head -n1",
+            timeout=10,
+        )
+        gpu_name = stdout.strip() if exit_code == 0 else ""
+        if gpu_name:
+            logger.info("Detected GPU name: %s", gpu_name)
+        else:
+            logger.warning("Unable to detect GPU name: %s", stderr.strip())
+
+        fp8_supported_gpus = (
+            "H100",
+            "H200",
+            "H800",
+            "H20",
+            "B100",
+            "B200",
+        )
+        if gpu_name and not any(token in gpu_name for token in fp8_supported_gpus):
+            logger.info("GPU does not match FP8-capable list; skipping quantization")
+            return ""
+
+        exit_code, stdout, stderr = self.ssh_execute(
+            ssh_info,
             "nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n1",
             timeout=10,
         )
@@ -372,6 +395,13 @@ echo "vLLM launched with PID $(cat {self.vllm_pid_path})" >> {self.vllm_startup_
                     logger.info("✅ vLLM API is responding!")
                     vllm_ready = True
                     break
+            elif i % 12 == 0:
+                recent_logs = self._tail_remote_log(ssh_info, self.vllm_log_path, lines=20)
+                if recent_logs:
+                    logger.warning("vLLM process not running. Recent logs: %s", recent_logs)
+                startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=50)
+                if startup_logs:
+                    logger.warning("vLLM startup logs: %s", startup_logs)
 
             if i % 12 == 0:
                 elapsed = int(time.time() - startup_start)
@@ -391,8 +421,8 @@ echo "vLLM launched with PID $(cat {self.vllm_pid_path})" >> {self.vllm_startup_
         if not vllm_ready:
             logger.error("vLLM failed to start in time")
 
-            logger.error("vLLM error logs:\n%s", self._tail_remote_log(ssh_info, self.vllm_log_path, lines=50))
-            startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=200)
+            logger.error("vLLM error logs:\n%s", self._tail_remote_log(ssh_info, self.vllm_log_path, lines=200))
+            startup_logs = self._tail_remote_log(ssh_info, self.vllm_startup_log_path, lines=300)
             if startup_logs:
                 logger.error("vLLM startup logs:\n%s", startup_logs)
             else:
