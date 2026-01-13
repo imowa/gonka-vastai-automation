@@ -25,10 +25,6 @@ def load_env(path: str = "config/.env") -> None:
                     continue
                 key, value = line.split("=", 1)
                 key = key.strip()
-                value = value.strip()
-                if value and value[0] in {"'", '"'}:
-                    value = value.strip("'\"")
-                else:
-                    value = value.split("#", 1)[0].strip()
+                value = value.strip().strip("'\"")
                 if key and key not in os.environ:
                     os.environ[key] = value
