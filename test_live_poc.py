@@ -54,13 +54,13 @@ parser.add_argument(
 parser.add_argument(
     "--search-retries",
     type=int,
-    default=int(os.getenv("VASTAI_SEARCH_RETRIES", "3")),
+    default=int(os.getenv("VASTAI_SEARCH_RETRIES", "99")),
     help="Number of times to retry the GPU search before failing.",
 )
 parser.add_argument(
     "--search-interval",
     type=int,
-    default=int(os.getenv("VASTAI_SEARCH_INTERVAL", "300")),
+    default=int(os.getenv("VASTAI_SEARCH_INTERVAL", "15")),
     help="Seconds to wait between GPU search attempts.",
 )
 parser.add_argument(
