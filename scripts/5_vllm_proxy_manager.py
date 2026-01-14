@@ -56,9 +56,9 @@ class RemoteVLLMManager:
         self.quantization = os.getenv('MLNODE_QUANTIZATION', '').strip()
         self.vllm_startup_timeout = int(os.getenv('VLLM_STARTUP_TIMEOUT', '1500'))
         self.vllm_model_download_timeout = int(os.getenv('VLLM_MODEL_DOWNLOAD_TIMEOUT', '1200'))
-        self.vllm_max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))
-        self.vllm_gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTIL', '0.9'))
-        self.vllm_max_num_seqs = int(os.getenv('VLLM_MAX_NUM_SEQS', '256'))
+        self.vllm_max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '2048'))
+        self.vllm_gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTIL', '0.85'))
+        self.vllm_max_num_seqs = int(os.getenv('VLLM_MAX_NUM_SEQS', '64'))
         self.vllm_log_path = os.getenv('VLLM_LOG_PATH', '/tmp/vllm.log')
         self.vllm_startup_log_path = os.getenv('VLLM_STARTUP_LOG_PATH', '/tmp/vllm_startup.log')
         self.vllm_pid_path = os.getenv('VLLM_PID_PATH', '/tmp/vllm.pid')
@@ -497,7 +497,15 @@ fi
             "max_concurrent": 100,
             "models": {
                 self.vllm_model: {
-                    "args": model_args + ["--gpu-memory-utilization", "0.9"]
+                    "args": model_args
+                    + [
+                        "--gpu-memory-utilization",
+                        str(self.vllm_gpu_memory_util),
+                        "--max-num-seqs",
+                        str(self.vllm_max_num_seqs),
+                        "--max-model-len",
+                        str(self.vllm_max_model_len),
+                    ]
                 }
             },
             "hardware": [
