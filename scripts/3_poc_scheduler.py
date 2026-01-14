@@ -98,6 +98,7 @@ class PoCScheduler:
         if min_total_vram_env is None:
             min_total_vram_env = os.getenv("VASTAI_MIN_VRAM", "24")
         self.min_total_vram_gb = int(min_total_vram_env)
+        self.poc_retry_attempts = int(os.getenv("POC_SPRINT_RETRIES", "3"))
         self.vastai_docker_image = os.getenv(
             "DOCKER_IMAGE",
             os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
@@ -126,6 +127,7 @@ class PoCScheduler:
             self.search_interval,
         )
         logger.info("Min total VRAM: %sGB", self.min_total_vram_gb)
+        logger.info("PoC sprint retry attempts: %s", self.poc_retry_attempts)
     
     def reset_daily_spend(self):
         """Reset daily spend counter at midnight"""
@@ -483,35 +485,44 @@ class PoCScheduler:
                 logger.error("Cannot start PoC: spending limit reached")
                 self.current_session.status = "failed"
                 return
-            
-            # Step 2: Select GPU
-            instance_id = self.start_gpu_instance_with_retries()
-            if not instance_id:
-                logger.error("Cannot start PoC: instance creation failed")
-                self.current_session.status = "failed"
-                return
-            
-            self.current_session.instance_id = instance_id
-            
-            # Step 4: Run PoC Sprint
-            success = self.run_poc_sprint(instance_id)
-            
+
+            success = False
+
+            for attempt in range(1, self.poc_retry_attempts + 1):
+                logger.info("PoC sprint attempt %s/%s", attempt, self.poc_retry_attempts)
+
+                # Step 2: Select GPU
+                instance_id = self.start_gpu_instance_with_retries()
+                if not instance_id:
+                    logger.error("Cannot start PoC: instance creation failed")
+                    continue
+
+                self.current_session.instance_id = instance_id
+
+                # Step 4: Run PoC Sprint
+                success = self.run_poc_sprint(instance_id)
+
+                # Always stop the GPU instance for this attempt
+                self.stop_gpu_instance(instance_id)
+                self.current_session.instance_id = None
+
+                if success:
+                    logger.info("✅ PoC cycle completed successfully")
+                    break
+
+                logger.error("❌ PoC sprint attempt %s failed", attempt)
+
             if success:
                 self.current_session.status = "completed"
-                logger.info("✅ PoC cycle completed successfully")
             else:
                 self.current_session.status = "failed"
-                logger.error("❌ PoC cycle failed")
+                logger.error("❌ PoC cycle failed after %s attempt(s)", self.poc_retry_attempts)
             
         except Exception as e:
             logger.error(f"Error during PoC cycle: {e}", exc_info=True)
             self.current_session.status = "failed"
         
         finally:
-            # Always stop the GPU instance
-            if self.current_session.instance_id:
-                self.stop_gpu_instance(self.current_session.instance_id)
-            
             self.current_session.end_time = time.time()
             duration = self.current_session.end_time - self.current_session.start_time
             
