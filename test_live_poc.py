@@ -95,7 +95,10 @@ print(f"  PoC Model (GPU): {os.getenv('MLNODE_POC_MODEL', 'Qwen/Qwen2.5-7B-Instr
 print(f"  Inference Model (API): {os.getenv('MLNODE_INFERENCE_MODEL', 'Qwen/QwQ-32B')}")
 print(f"  GPU Count: {os.getenv('VASTAI_NUM_GPUS', '1')}")
 print(f"  Max GPU Price: ${os.getenv('VASTAI_MAX_PRICE', '0.30')}/hr")
-print(f"  Min Total VRAM: {os.getenv('VASTAI_MIN_TOTAL_VRAM', '40')}GB")
+min_total_vram_env = os.getenv("VASTAI_MIN_TOTAL_VRAM")
+if min_total_vram_env is None:
+    min_total_vram_env = os.getenv("VASTAI_MIN_VRAM", "24")
+print(f"  Min Total VRAM: {min_total_vram_env}GB")
 print("\n⚠️  This will rent an actual GPU and may take several minutes")
 print("⚠️  Large Docker images (13GB+) can take time to download")
 print("Costs depend on your Vast.ai pricing limits")
@@ -105,7 +108,7 @@ if not args.yes:
 
 scheduler = scheduler_module.PoCScheduler()
 start_time = time.time()
-min_total_vram_gb = int(os.getenv("VASTAI_MIN_TOTAL_VRAM", "40"))
+min_total_vram_gb = int(min_total_vram_env)
 
 # Step 1: Find GPU
 print("\nStep 1: Searching for GPU...")
