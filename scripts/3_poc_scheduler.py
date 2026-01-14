@@ -94,7 +94,10 @@ class PoCScheduler:
         self.instance_start_retries = int(os.getenv("VASTAI_START_RETRIES", "2"))
         self.search_retries = int(os.getenv("VASTAI_SEARCH_RETRIES", "3"))
         self.search_interval = int(os.getenv("VASTAI_SEARCH_INTERVAL", "300"))
-        self.min_total_vram_gb = int(os.getenv("VASTAI_MIN_TOTAL_VRAM", "40"))
+        min_total_vram_env = os.getenv("VASTAI_MIN_TOTAL_VRAM")
+        if min_total_vram_env is None:
+            min_total_vram_env = os.getenv("VASTAI_MIN_VRAM", "24")
+        self.min_total_vram_gb = int(min_total_vram_env)
         self.vastai_docker_image = os.getenv(
             "DOCKER_IMAGE",
             os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
