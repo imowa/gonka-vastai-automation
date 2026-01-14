@@ -42,11 +42,17 @@ from env_loader import load_env
 
 load_env('config/.env')
 
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "poc_scheduler.log"
+LOCAL_LOG_FILE = Path("log.txt")
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/poc_scheduler.log'),
+        logging.FileHandler(LOG_FILE),
+        logging.FileHandler(LOCAL_LOG_FILE),
         logging.StreamHandler()
     ]
 )
