@@ -75,6 +75,8 @@ if args.wait_timeout:
 if args.docker_image:
     os.environ["DOCKER_IMAGE"] = args.docker_image
     os.environ["VASTAI_DOCKER_IMAGE"] = args.docker_image
+os.environ["VASTAI_SEARCH_RETRIES"] = str(args.search_retries)
+os.environ["VASTAI_SEARCH_INTERVAL"] = str(args.search_interval)
 
 logging.basicConfig(
     level=logging.INFO,

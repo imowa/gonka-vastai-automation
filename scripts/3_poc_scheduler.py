@@ -94,6 +94,7 @@ class PoCScheduler:
         self.instance_start_retries = int(os.getenv("VASTAI_START_RETRIES", "2"))
         self.search_retries = int(os.getenv("VASTAI_SEARCH_RETRIES", "3"))
         self.search_interval = int(os.getenv("VASTAI_SEARCH_INTERVAL", "300"))
+        self.min_total_vram_gb = int(os.getenv("VASTAI_MIN_TOTAL_VRAM", "40"))
         self.vastai_docker_image = os.getenv(
             "DOCKER_IMAGE",
             os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
@@ -121,6 +122,7 @@ class PoCScheduler:
             self.search_retries,
             self.search_interval,
         )
+        logger.info("Min total VRAM: %sGB", self.min_total_vram_gb)
     
     def reset_daily_spend(self):
         """Reset daily spend counter at midnight"""
@@ -163,12 +165,17 @@ class PoCScheduler:
             if not offers:
                 logger.warning("No GPU instances available (attempt %s/%s)", attempt, attempts)
             else:
-                # Filter by VRAM requirement (need 40GB+ total)
-                valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
+                # Filter by VRAM requirement
+                valid_offers = [
+                    o
+                    for o in offers
+                    if (o.gpu_ram * o.num_gpus) >= (self.min_total_vram_gb * 1000)
+                ]
                 if valid_offers:
                     break
                 logger.warning(
-                    "No instances with 40GB+ VRAM found (attempt %s/%s)",
+                    "No instances with %sGB+ total VRAM found (attempt %s/%s)",
+                    self.min_total_vram_gb,
                     attempt,
                     attempts,
                 )
