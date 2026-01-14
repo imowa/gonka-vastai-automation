@@ -54,13 +54,13 @@ parser.add_argument(
 parser.add_argument(
     "--search-retries",
     type=int,
-    default=int(os.getenv("VASTAI_SEARCH_RETRIES", "3")),
+    default=int(os.getenv("VASTAI_SEARCH_RETRIES", "99")),
     help="Number of times to retry the GPU search before failing.",
 )
 parser.add_argument(
     "--search-interval",
     type=int,
-    default=int(os.getenv("VASTAI_SEARCH_INTERVAL", "300")),
+    default=int(os.getenv("VASTAI_SEARCH_INTERVAL", "15")),
     help="Seconds to wait between GPU search attempts.",
 )
 parser.add_argument(
@@ -75,6 +75,8 @@ if args.wait_timeout:
 if args.docker_image:
     os.environ["DOCKER_IMAGE"] = args.docker_image
     os.environ["VASTAI_DOCKER_IMAGE"] = args.docker_image
+os.environ["VASTAI_SEARCH_RETRIES"] = str(args.search_retries)
+os.environ["VASTAI_SEARCH_INTERVAL"] = str(args.search_interval)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,6 +95,7 @@ print(f"  PoC Model (GPU): {os.getenv('MLNODE_POC_MODEL', 'Qwen/Qwen2.5-7B-Instr
 print(f"  Inference Model (API): {os.getenv('MLNODE_INFERENCE_MODEL', 'Qwen/QwQ-32B')}")
 print(f"  GPU Count: {os.getenv('VASTAI_NUM_GPUS', '1')}")
 print(f"  Max GPU Price: ${os.getenv('VASTAI_MAX_PRICE', '0.30')}/hr")
+print(f"  Min Total VRAM: {os.getenv('VASTAI_MIN_TOTAL_VRAM', '40')}GB")
 print("\n⚠️  This will rent an actual GPU and may take several minutes")
 print("⚠️  Large Docker images (13GB+) can take time to download")
 print("Costs depend on your Vast.ai pricing limits")
@@ -102,6 +105,7 @@ if not args.yes:
 
 scheduler = scheduler_module.PoCScheduler()
 start_time = time.time()
+min_total_vram_gb = int(os.getenv("VASTAI_MIN_TOTAL_VRAM", "40"))
 
 # Step 1: Find GPU
 print("\nStep 1: Searching for GPU...")
@@ -117,11 +121,26 @@ while search_attempt < max(1, args.search_retries):
         exclude_offer_ids=blocked_offer_ids,
         exclude_host_ids=blocked_host_ids,
     )
-    valid_offers = [o for o in offers if (o.gpu_ram * o.num_gpus) >= 40000]
+    valid_offers = [
+        o
+        for o in offers
+        if (o.gpu_ram * o.num_gpus) >= (min_total_vram_gb * 1000)
+    ]
     if valid_offers:
         break
 
     if search_attempt < args.search_retries:
+        if offers:
+            print(
+                f"ℹ️  Found {len(offers)} offer(s), but none meet "
+                f"the {min_total_vram_gb}GB total VRAM requirement."
+            )
+            for offer in offers:
+                total_vram = offer.gpu_ram * offer.num_gpus / 1000
+                print(
+                    f"   - {offer.gpu_name} | {offer.num_gpus}x | "
+                    f"VRAM: {total_vram:.1f}GB | ${offer.dph_total:.3f}/hr"
+                )
         print(
             f"⚠️  No GPU available (attempt {search_attempt}/{args.search_retries}). "
             f"Retrying in {args.search_interval}s..."
