@@ -250,7 +250,7 @@ class VastAIManager:
 
             # Parse and sort offers
             instances = []
-            for offer in response['offers'][:limit]:
+            for offer in response['offers']:
                 if excluded_offers and offer['id'] in excluded_offers:
                     continue
                 if excluded_hosts and offer.get('host_id') in excluded_hosts:
@@ -275,7 +275,10 @@ class VastAIManager:
             
             # Sort by price
             instances.sort(key=lambda x: x.dph_total)
-            
+
+            if limit:
+                instances = instances[:limit]
+
             logger.info(f"Found {len(instances)} available instances")
             return instances
         
