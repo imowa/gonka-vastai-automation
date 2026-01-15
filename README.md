@@ -34,6 +34,64 @@ This project automates a **hybrid Gonka MLNode** that:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Official MLNode Integration
+
+This automation now uses the **official MLNode Docker container** for PoC operations, ensuring full compatibility with the Gonka network protocol.
+
+### How It Works
+
+1. **Inference (24/7)**: Hyperbolic Proxy handles all inference requests
+   - Runs on your VPS (no GPU needed)
+   - Routes requests to Hyperbolic API
+   - Registered with Network Node as inference-only node
+
+2. **PoC (On-Demand)**: Official MLNode Container on Vast.ai GPU
+   - Scheduler detects PoC timing from blockchain
+   - Automatically rents Vast.ai GPU ~30 minutes before PoC
+   - Deploys official MLNode Docker container (`ghcr.io/product-science/mlnode`)
+   - MLNode handles all PoC compute and validation using official implementation
+   - Automatically unregisters and stops GPU after PoC completes
+
+### Key Components
+
+- **`scripts/hyperbolic_proxy.py`**: Inference-only proxy (Hyperbolic API)
+- **`scripts/mlnode_poc_manager.py`**: Official MLNode container manager
+- **`scripts/3_poc_scheduler.py`**: Automated PoC orchestration
+- **`scripts/1_poc_monitor.py`**: Blockchain monitoring for PoC timing
+
+### Official MLNode PoC Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Network Node detects PoC phase                              │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Network Node calls MLNode PoC endpoints                     │
+│  • /api/v1/pow/init/generate                                 │
+│  • /api/v1/pow/phase/generate                                │
+│  • /api/v1/pow/phase/validate                                │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Official MLNode Container (Vast.ai GPU)                     │
+│  • Runs PoC compute (mlnode/packages/pow/compute)            │
+│  • Validates proofs (mlnode/packages/pow/validate)           │
+│  • Sends callbacks to Network Node                           │
+│    - /v1/poc-batches/generated                               │
+│    - /v1/poc-batches/validated                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+The official MLNode implementation includes:
+- Full PoC compute engine (`mlnode/packages/pow/src/pow/compute/compute.py`)
+- PoC service orchestration (`mlnode/packages/pow/src/pow/service/manager.py`)
+- Automatic callbacks to Network Node (`mlnode/packages/pow/src/pow/service/sender.py`)
+
+This ensures 100% compatibility with the Gonka network protocol.
+
 ## Dual Model Strategy
 
 This system uses an optimized dual-model approach:
@@ -229,13 +287,21 @@ VASTAI_MAX_PRICE=0.30
 VASTAI_DISK_SIZE=50
 DOCKER_IMAGE=ghcr.io/product-science/mlnode:3.0.11-post1@sha256:0cf224b2f88694def989731ecdd23950a6d899be5d70e01e8dcf823b906199af
 
+# Official MLNode Configuration (PoC)
+MLNODE_PORT=5070
+MLNODE_API_SEGMENT=/api/v1
+MLNODE_INFERENCE_SEGMENT=/v1
+MLNODE_STARTUP_TIMEOUT=1800
+POC_EXECUTION_TIMEOUT=900
+
 # Gonka admin API
 GONKA_ADMIN_API_URL=http://localhost:9200
 ```
 
-> ✅ The official MLNode image already includes vLLM and dependencies. No extra
-> installation or onstart script is required; the automation only needs to
-> start vLLM after the container is running.
+> ✅ **Official MLNode Integration**: The automation now uses the official MLNode
+> Docker container which includes the complete PoC implementation (compute engine,
+> validation, and callbacks). The container is deployed on Vast.ai GPUs only during
+> PoC windows, and the Network Node communicates directly with the MLNode API.
 
 ### Step 3: Start Hyperbolic inference proxy
 
@@ -279,36 +345,63 @@ python3 scripts/3_poc_scheduler.py
 
 The scheduler monitors the chain and spins up Vast.ai GPUs for PoC windows.
 
-### Step 5: Run a live PoC test (manual)
+### Step 5: Test official MLNode integration
 
-Use the live test script to validate GPU rental, vLLM startup, and PoC flow.
+Use the integration test script to validate the complete PoC flow with the official MLNode container.
 
 ```bash
 source venv/bin/activate
-python3 test_live_poc.py --yes --estimated-minutes 15
+
+# Test MLNode manager only (no GPU rental)
+python3 test_mlnode_poc_integration.py --manager-only
+
+# Full integration test (rents GPU and runs PoC)
+python3 test_mlnode_poc_integration.py --yes --estimated-minutes 15
 ```
 
 Optional flags:
-- `--docker-image <image>` to override the Vast.ai image (default: `DOCKER_IMAGE`)
-- `--wait-timeout 1800` to extend the vLLM startup timeout (seconds)
-- `--skip-poc` to validate provisioning without running the PoC sprint
+- `--manager-only`: Test manager initialization without GPU rental
+- `--skip-poc`: Test provisioning without waiting for PoC execution
+- `--yes`: Skip confirmation prompt
+- `--estimated-minutes N`: Set expected test duration (default: 15)
+
+The test will:
+1. Rent a Vast.ai GPU
+2. Deploy the official MLNode Docker container
+3. Wait for MLNode to initialize (model download ~15-20 minutes)
+4. Register MLNode with the Network Node
+5. Monitor PoC execution (if not skipped)
+6. Clean up and stop the GPU
 
 ## Key Scripts
 
-- `scripts/hyperbolic_proxy.py`: Hyperbolic inference proxy + MLNode endpoints
-- `scripts/3_poc_scheduler.py`: PoC scheduler (GPU rentals + vLLM)
-- `scripts/1_poc_monitor.py`: PoC timing monitor
+- `scripts/hyperbolic_proxy.py`: Hyperbolic inference proxy (inference-only)
+- `scripts/mlnode_poc_manager.py`: Official MLNode container manager for PoC
+- `scripts/3_poc_scheduler.py`: Automated PoC orchestration with official MLNode
+- `scripts/1_poc_monitor.py`: Blockchain monitoring for PoC timing
 - `scripts/2_vastai_manager.py`: Vast.ai API manager
-- `scripts/5_vllm_proxy_manager.py`: Remote vLLM manager
+- `test_mlnode_poc_integration.py`: Integration test for official MLNode PoC
 
 ## FAQ
 
-**Can I run the MLNode inference without a GPU?**  
+**Does this use the official MLNode PoC implementation?**
+Yes! The automation now deploys the official MLNode Docker container
+(`ghcr.io/product-science/mlnode`) which includes the complete PoC implementation.
+This ensures 100% compatibility with the Gonka network protocol.
+
+**Can I run the MLNode inference without a GPU?**
 Yes. The Hyperbolic proxy runs on a CPU-only VPS and forwards inference to the
 Hyperbolic API. GPUs are only required for PoC runs via Vast.ai.
 
-**Do I still need Vast.ai?**  
-Yes, for PoC sprints. Inference can be fully offloaded to Hyperbolic.
+**Do I still need Vast.ai?**
+Yes, for PoC sprints. Inference is fully offloaded to Hyperbolic, but PoC requires
+GPU compute. The automation rents GPUs only during PoC windows (~15 minutes every
+few hours).
+
+**How does PoC work with the official MLNode?**
+The Network Node automatically calls the MLNode PoC endpoints when PoC starts.
+The MLNode container handles all PoC computation, validation, and callbacks using
+the official implementation from `mlnode/packages/pow`.
 
 ## License
 

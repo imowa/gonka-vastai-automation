@@ -372,31 +372,31 @@ class PoCScheduler:
     
     def run_poc_sprint(self, instance_id: int) -> bool:
         """
-        Run PoC Sprint using remote vLLM on GPU
-        Network Node talks directly to remote vLLM (no local MLNode needed)
-        
+        Run PoC Sprint using official MLNode container on GPU.
+        The official MLNode handles PoC compute, validation, and callbacks.
+
         Returns:
             True if successful, False otherwise
         """
-        logger.info(f"Running PoC Sprint with remote vLLM on instance {instance_id}")
-        
-        vllm_manager = None
+        logger.info(f"Running PoC Sprint with official MLNode on instance {instance_id}")
+
+        mlnode_manager = None
         ssh_info = None
-        vllm_host = None
+        mlnode_url = None
         registered = False
 
         try:
-            # Import remote vLLM manager
-            spec = importlib.util.spec_from_file_location("vllm_manager", "scripts/5_vllm_proxy_manager.py")
-            vllm_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(vllm_module)
-            RemoteVLLMManager = vllm_module.RemoteVLLMManager
+            # Import official MLNode manager
+            spec = importlib.util.spec_from_file_location("mlnode_manager", "scripts/mlnode_poc_manager.py")
+            mlnode_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mlnode_module)
+            MLNodePoCManager = mlnode_module.MLNodePoCManager
 
-            vllm_manager = RemoteVLLMManager()
+            mlnode_manager = MLNodePoCManager()
 
             # Step 1: Get SSH connection to GPU
             logger.info("Step 1: Connecting to GPU instance...")
-            ssh_info = vllm_manager.get_ssh_connection(self.vastai, instance_id)
+            ssh_info = mlnode_manager.get_ssh_connection(self.vastai, instance_id)
 
             if not ssh_info:
                 logger.error("Failed to get SSH connection")
@@ -405,36 +405,44 @@ class PoCScheduler:
 
             logger.info(f"✅ Connected: {ssh_info['host']}:{ssh_info['port']}")
 
-            # Step 2: Start vLLM on remote GPU
-            logger.info("Step 2: Starting vLLM on remote GPU...")
-            vllm_host = vllm_manager.start_remote_vllm(ssh_info, instance_id)
+            # Step 2: Start MLNode container (wait for it to be ready)
+            logger.info("Step 2: Starting official MLNode container...")
+            mlnode_url = mlnode_manager.start_mlnode_container(ssh_info, instance_id)
 
-            if not vllm_host:
-                logger.error("Failed to start vLLM")
-                self.vastai.block_instance(instance_id, reason="vllm-start-failed")
+            if not mlnode_url:
+                logger.error("Failed to start MLNode")
+                self.vastai.block_instance(instance_id, reason="mlnode-start-failed")
                 return False
 
-            logger.info(f"✅ vLLM ready at {vllm_host}")
+            logger.info(f"✅ MLNode ready at {mlnode_url}")
 
-            # Step 3: Register remote vLLM as MLNode
-            logger.info("Step 3: Registering remote vLLM with Network Node...")
+            # Step 3: Register MLNode with Network Node
+            logger.info("Step 3: Registering MLNode with Network Node...")
             if not self.check_inference_proxy_health():
                 logger.warning("⚠️ Inference proxy is down; proceeding with PoC registration")
-            if not vllm_manager.register_remote_mlnode(vllm_host, instance_id):
-                logger.error("Failed to register remote MLNode")
+
+            if not mlnode_manager.register_mlnode(mlnode_url, instance_id):
+                logger.error("Failed to register MLNode")
                 return False
 
             registered = True
-            logger.info("✅ Remote MLNode registered")
+            logger.info("✅ MLNode registered")
 
             # Step 4: Wait for PoC to complete
+            # The Network Node will automatically call the MLNode PoC endpoints
+            # and the MLNode will handle all PoC computation and callbacks
             logger.info("Step 4: Monitoring PoC progress...")
-            success = vllm_manager.wait_for_poc_completion(instance_id, timeout=900)
+            logger.info("Network Node will automatically trigger PoC on the MLNode")
+
+            success = mlnode_manager.wait_for_poc_completion(
+                instance_id,
+                timeout=self.max_duration
+            )
 
             if success:
                 logger.info("✅ PoC Sprint completed!")
             else:
-                logger.warning("⚠️  PoC Sprint timed out")
+                logger.warning("⚠️ PoC Sprint timed out or failed")
 
             return success
 
@@ -443,12 +451,10 @@ class PoCScheduler:
             self.vastai.block_instance(instance_id, reason="poc-sprint-error")
             return False
         finally:
-            if vllm_manager and registered:
-                logger.info("Unregistering remote MLNode...")
-                vllm_manager.unregister_remote_mlnode(instance_id)
-            if vllm_manager and ssh_info:
-                logger.info("Stopping remote vLLM...")
-                vllm_manager.stop_remote_vllm(ssh_info)
+            if mlnode_manager and registered:
+                logger.info("Unregistering MLNode...")
+                mlnode_manager.unregister_mlnode(instance_id)
+
             self.ensure_inference_proxy_registered()
             logger.info("Cleanup complete")
     

@@ -158,92 +158,13 @@ async def inference_down(version: str | None = None):
     node_state.ready = False
     return node_state.to_dict()
 
-@app.post("/api/v1/pow/init")
-@app.post("/{version}/api/v1/pow/init")
-@app.post("/v3.0.8/api/v1/pow/init")
-async def pow_init(request: dict = Body(...), version: str | None = None):
-    """Handle Proof of Compute init"""
-    print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
-    return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/pow/init/generate")
-@app.post("/{version}/api/v1/pow/init/generate")
-@app.post("/v3.0.8/api/v1/pow/init/generate")
-async def pow_init_generate(request: dict = Body(...), version: str | None = None):
-    """Handle Proof of Compute initialization"""
-    print(f"🔐 PoC init request: {json.dumps(request, indent=2)}")
-    # For a proxy, we acknowledge but don't actually compute PoC
-    return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/pow/init/validate")
-@app.post("/{version}/api/v1/pow/init/validate")
-@app.post("/v3.0.8/api/v1/pow/init/validate")
-async def pow_init_validate(request: dict = Body(...), version: str | None = None):
-    """Handle Proof of Compute init validation"""
-    print(f"🔐 PoC init validate request: {json.dumps(request, indent=2)}")
-    return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/pow/phase/generate")
-@app.post("/{version}/api/v1/pow/phase/generate")
-@app.post("/v3.0.8/api/v1/pow/phase/generate")
-async def pow_phase_generate(request: dict = Body(...), version: str | None = None):
-    """Handle PoC phase generate requests"""
-    print(f"🔐 PoC phase generate request: {json.dumps(request, indent=2)}")
-    return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/pow/phase/validate")
-@app.post("/{version}/api/v1/pow/phase/validate")
-@app.post("/v3.0.8/api/v1/pow/phase/validate")
-async def pow_phase_validate(request: dict = Body(...), version: str | None = None):
-    """Handle PoC phase validate requests"""
-    print(f"🔐 PoC phase validate request: {json.dumps(request, indent=2)}")
-    return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/pow/validate")
-@app.post("/{version}/api/v1/pow/validate")
-@app.post("/v3.0.8/api/v1/pow/validate")
-async def pow_validate(request: dict = Body(...), version: str | None = None):
-    """Handle PoC proof validation"""
-    print(f"🔐 PoC validate request: {json.dumps(request, indent=2)}")
-    return {
-        "status": "acknowledged",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.get("/api/v1/pow/status")
-@app.get("/{version}/api/v1/pow/status")
-@app.get("/v3.0.8/api/v1/pow/status")
-async def pow_status(version: str | None = None):
-    """Return PoC status"""
-    return {
-        "status": "idle",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/pow/stop")
-@app.post("/{version}/api/v1/pow/stop")
-@app.post("/v3.0.8/api/v1/pow/stop")
-async def pow_stop(version: str | None = None):
-    """Stop PoC processing"""
-    return {
-        "status": "stopped",
-        "timestamp": datetime.now().isoformat()
-    }
+# ============================================================================
+# NOTE: PoC (Proof of Compute) endpoints are NOT implemented in this proxy.
+# This proxy is INFERENCE-ONLY using Hyperbolic API.
+#
+# For PoC operations, the Network Node will automatically route to the
+# official MLNode containers deployed on Vast.ai GPUs (managed by the scheduler).
+# ============================================================================
 
 @app.post("/api/v1/train/start")
 @app.post("/{version}/api/v1/train/start")
@@ -553,7 +474,7 @@ def main():
     """Main entry point"""
     
     print("=" * 70)
-    print("  Hyperbolic Proxy Server for Gonka (All Endpoints)")
+    print("  Hyperbolic Proxy Server for Gonka (INFERENCE ONLY)")
     print("=" * 70)
     print(f"📍 Configuration:")
     print(f"   Node ID: {NODE_ID}")
@@ -562,14 +483,15 @@ def main():
     print(f"   Model: {MODEL_NAME}")
     print(f"   Admin API: {GONKA_ADMIN_API}")
     print(f"   Inference segment: {INFERENCE_SEGMENT}")
-    print(f"   PoC segment: {POC_SEGMENT}")
+    print(f"\n⚠️  NOTE: This proxy handles INFERENCE ONLY")
+    print(f"   PoC operations are handled by official MLNode containers on Vast.ai GPUs")
+    print(f"   The scheduler (3_poc_scheduler.py) manages PoC automation")
     print(f"\n🚀 Starting server on port {PROXY_PORT}...")
     print(f"   Endpoints:")
     print(f"     • GET  /health")
     print(f"     • GET  /api/v1/state")
     print(f"     • POST /api/v1/stop")
     print(f"     • POST /api/v1/inference/up")
-    print(f"     • POST /api/v1/pow/init/generate")
     print(f"     • POST /api/v1/models/status")
     print(f"     • GET  /api/v1/gpu/devices")
     print(f"     • POST /v1/chat/completions")
