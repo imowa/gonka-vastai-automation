@@ -231,37 +231,17 @@ class MLNodePoCManager:
             logger.error("SSH failed to be ready")
             return None
 
-        # Step 2: Check container status
-        logger.info("Step 2: Checking MLNode container...")
-
-        exit_code, stdout, stderr = self.ssh_execute(
-            ssh_info,
-            "docker ps --format '{{.Names}} {{.Status}} {{.Ports}}'",
-            timeout=30
-        )
-
-        if exit_code != 0:
-            logger.error(f"Failed to check Docker containers: {stderr}")
-            return None
-
-        logger.info(f"Docker containers:\n{stdout}")
-
-        # Step 3: Wait for MLNode to be ready
-        logger.info("Step 3: Waiting for MLNode API to be ready...")
+        # Step 2: Wait for MLNode to be ready
+        # Note: Vast.ai instance IS the MLNode container already running
+        # No need to check docker or start anything - just wait for the API
+        logger.info("Step 2: Waiting for MLNode API to be ready...")
 
         mlnode_host = ssh_info['host']
         mlnode_url = f"http://{mlnode_host}:{self.mlnode_port}"
 
         if not self.wait_for_mlnode_ready(mlnode_url, timeout=self.mlnode_startup_timeout):
-            logger.error("MLNode failed to start")
-            # Get logs for debugging
-            exit_code, stdout, stderr = self.ssh_execute(
-                ssh_info,
-                "docker logs --tail 100 $(docker ps -q)",
-                timeout=30
-            )
-            if exit_code == 0:
-                logger.error(f"MLNode container logs:\n{stdout}")
+            logger.error("MLNode failed to start within timeout")
+            logger.error(f"Check MLNode logs via SSH: ssh -p {ssh_info['port']} {ssh_info['username']}@{ssh_info['host']}")
             return None
 
         logger.info(f"✅ MLNode is ready at {mlnode_url}")
