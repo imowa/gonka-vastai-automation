@@ -9,6 +9,7 @@ import os
 import time
 import argparse
 import logging
+import importlib.util
 from pathlib import Path
 
 # Add scripts to path
@@ -16,8 +17,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.append(str(PROJECT_ROOT))
 sys.path.append(str(PROJECT_ROOT / "scripts"))
 
-from scripts.mlnode_poc_manager import MLNodePoCManager
-from scripts.poc_scheduler import PoCScheduler
+# Import from numbered scripts using importlib
+spec = importlib.util.spec_from_file_location("mlnode_poc_manager", "scripts/mlnode_poc_manager.py")
+mlnode_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mlnode_module)
+MLNodePoCManager = mlnode_module.MLNodePoCManager
+
+spec = importlib.util.spec_from_file_location("poc_scheduler", "scripts/3_poc_scheduler.py")
+scheduler_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(scheduler_module)
+PoCScheduler = scheduler_module.PoCScheduler
+
 from env_loader import load_env
 
 load_env('config/.env')
