@@ -151,6 +151,21 @@ Callback error handling:
 - Invalid JSON returns `400 Bad Request`.
 - Chain submission errors surface as server errors.
 
+## Inference Routing (Transfer vs Executor)
+
+The Hyperbolic proxy can optionally forward initial inference requests to a
+Gonka executor when it detects a transfer request (missing `X-Inference-Id`
+and `X-Seed`). When enabled, the proxy:
+
+- Computes `X-Prompt-Hash` from the raw request body.
+- Adds `X-Inference-Id`, `X-Seed`, and `X-Timestamp`.
+- Forwards the request to `EXECUTOR_BASE_URL` + `EXECUTOR_INFERENCE_PATH`.
+
+If `X-Inference-Id` and `X-Seed` are already present (executor request), the
+proxy routes the request to Hyperbolic and injects the seed into the request
+body. This keeps executor semantics while still using the Hyperbolic API for
+model execution.
+
 ## Prerequisites
 
 ### 1) VPS
@@ -189,6 +204,15 @@ HYPERBOLIC_API_KEY=your_hyperbolic_api_key_here
 HYPERBOLIC_MODEL=Qwen/QwQ-32B
 HYPERBOLIC_BASE_URL=https://api.hyperbolic.xyz/v1
 HYPERBOLIC_PROXY_PORT=8080
+
+# Transfer routing (forward initial requests to a Gonka executor)
+ENABLE_TRANSFER_ROUTING=true
+EXECUTOR_BASE_URL=https://executor.example.com
+EXECUTOR_INFERENCE_PATH=/v1/chat/completions
+INFERENCE_FORWARD_TIMEOUT=300
+TRANSFER_ADDRESS=gonka1transferaddresshere
+REQUESTER_ADDRESS=gonka1requesteraddresshere
+REQUIRE_TRANSFER_SIGNATURE=false
 
 # Dual model config
 MLNODE_POC_MODEL=Qwen/Qwen2.5-7B-Instruct
@@ -235,6 +259,13 @@ Default settings (override via environment variables):
 - `POC_SEGMENT` (default: `/api/v1`)
 - `HARDWARE_TYPE` (default: `Hyperbolic-API`)
 - `HARDWARE_COUNT` (default: `1`)
+- `ENABLE_TRANSFER_ROUTING` (default: `true`)
+- `EXECUTOR_BASE_URL` (default: empty, required for transfer forwarding)
+- `EXECUTOR_INFERENCE_PATH` (default: `/v1/chat/completions`)
+- `INFERENCE_FORWARD_TIMEOUT` (default: `300`)
+- `TRANSFER_ADDRESS` (default: empty)
+- `REQUESTER_ADDRESS` (default: empty)
+- `REQUIRE_TRANSFER_SIGNATURE` (default: `false`)
 
 The proxy also accepts version-prefixed paths (for example: `/v3.0.8/api/v1/*`
 or `/v3.0.8/v1/chat/completions`) to align with the network node URL builder.
