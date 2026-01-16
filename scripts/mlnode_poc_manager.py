@@ -77,34 +77,57 @@ class MLNodePoCManager:
             logger.info(f"DEBUG - Total fields: {len(all_fields)}")
             logger.info(f"DEBUG - ALL status fields: {all_fields}")
 
-            # Check extra_env for port mapping (VAST_TCP_PORT_5070=10087)
-            extra_env = status.get('extra_env', {})
+            # Check extra_env for port mapping
+            extra_env = status.get('extra_env', [])
             logger.info(f"DEBUG - extra_env: {extra_env}")
 
-            # Look for any field containing "5070" or the mlnode port
-            matching_fields = {}
-            for k, v in status.items():
-                if isinstance(v, (str, int)) and ('5070' in str(k) or '5070' in str(v)):
-                    matching_fields[k] = v
-            logger.info(f"DEBUG - Fields containing '5070': {matching_fields}")
+            # Parse extra_env to find port mappings (it's a list of lists or strings)
+            mlnode_port_from_docker_args = None
+            if isinstance(extra_env, (list, str)):
+                env_str = str(extra_env)
+                # Look for patterns like "5070:XXXX" in the extra_env
+                import re
+                # Match port mappings like "-p 12345:5070" or "12345:5070"
+                port_pattern = r'(\d+):5070'
+                matches = re.findall(port_pattern, env_str)
+                if matches:
+                    mlnode_port_from_docker_args = int(matches[0])
+                    logger.info(f"DEBUG - Found port mapping in extra_env: {mlnode_port_from_docker_args}:5070")
 
-            # Try to get port from extra_env (VAST_TCP_PORT_5070)
-            mlnode_port_from_env = None
-            if isinstance(extra_env, dict):
-                mlnode_port_from_env = extra_env.get(f'VAST_TCP_PORT_{self.mlnode_port}')
+            # Try to get port from SSH command - query the container's environment
+            # Vast.ai sets VAST_TCP_PORT_5070 environment variable inside the container
+            mlnode_port_from_ssh = None
+            if ssh_host and ssh_port:
+                try:
+                    import paramiko
+                    ssh = paramiko.SSHClient()
+                    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    private_key = paramiko.RSAKey.from_private_key_file(self.ssh_key_path)
+                    ssh.connect(
+                        hostname=ssh_host,
+                        port=ssh_port,
+                        username='root',
+                        pkey=private_key,
+                        timeout=5
+                    )
+                    stdin, stdout, stderr = ssh.exec_command("echo $VAST_TCP_PORT_5070", timeout=5)
+                    port_output = stdout.read().decode().strip()
+                    ssh.close()
 
-            logger.info(f"DEBUG - VAST_TCP_PORT_{self.mlnode_port} from env: {mlnode_port_from_env}")
+                    if port_output and port_output.isdigit():
+                        mlnode_port_from_ssh = int(port_output)
+                        logger.info(f"DEBUG - Port from container env: {mlnode_port_from_ssh}")
+                except Exception as e:
+                    logger.warning(f"Could not query port via SSH (this is normal if container just started): {e}")
 
-            # Get the externally mapped MLNode port (Vast.ai maps internal ports to external ones)
+            # Get the externally mapped MLNode port
             mlnode_port = (
-                mlnode_port_from_env or  # Try environment variable first
-                status.get(f'direct_port_{self.mlnode_port}') or
-                status.get('direct_port_5070') or
-                status.get(f'ports.{self.mlnode_port}/tcp') or
-                status.get('port_mappings', {}).get(str(self.mlnode_port)) or
-                status.get('ports', {}).get(f'{self.mlnode_port}/tcp') or
-                self.mlnode_port  # Fallback to default
+                mlnode_port_from_ssh or  # Try SSH query first (most accurate)
+                mlnode_port_from_docker_args or  # Try parsing extra_env
+                self.mlnode_port  # Fallback to default (will likely fail but worth trying)
             )
+
+            logger.info(f"DEBUG - Final port selection: {mlnode_port} (SSH: {mlnode_port_from_ssh}, Docker args: {mlnode_port_from_docker_args}, Default: {self.mlnode_port})")
 
             if not ssh_host:
                 logger.error("SSH host not found in response")

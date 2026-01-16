@@ -312,15 +312,18 @@ class VastAIManager:
                 "DOCKER_IMAGE",
                 os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
             )
+
+            # Vast.ai API parameters
             data = {
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
-                'label': 'gonka-poc-sprint',
-                'env': {
-                    '-p 5070:5070/tcp': '1'  # Expose MLNode API port
-                }
+                'label': 'gonka-poc-sprint'
             }
+
+            # Note: Vast.ai automatically exposes ports that are in the Docker image EXPOSE directive
+            # The MLNode image should have EXPOSE 5070, so Vast.ai will map it automatically
+            # No need to manually specify port mapping here
 
             if onstart:
                 data['onstart'] = onstart
