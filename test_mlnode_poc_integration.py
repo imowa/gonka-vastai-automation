@@ -147,19 +147,20 @@ def test_full_poc_flow(skip_poc=False, estimated_minutes=15):
             # Import MLNode manager
             mlnode_manager = MLNodePoCManager()
 
-            # Get SSH connection
-            print("\nConnecting to GPU instance...")
+            # Get connection info (host/port for MLNode API)
+            print("\nGetting GPU instance connection details...")
             ssh_info = mlnode_manager.get_ssh_connection(scheduler.vastai, instance_id)
 
             if not ssh_info:
-                print("❌ Failed to get SSH connection")
+                print("❌ Failed to get instance connection details")
                 return False
 
-            print(f"✅ SSH connected: {ssh_info['host']}:{ssh_info['port']}")
+            print(f"✅ Instance accessible at: {ssh_info['host']}:{ssh_info['port']}")
 
-            # Start MLNode container
-            print("\nStarting official MLNode container...")
+            # Wait for MLNode container to be ready
+            print("\nWaiting for MLNode container to initialize...")
             print("(This may take 15-30 minutes for model download and initialization)")
+            print("Note: The MLNode Docker image does not include SSH - checking API only")
 
             mlnode_url = mlnode_manager.start_mlnode_container(ssh_info, instance_id)
 

@@ -212,36 +212,35 @@ class MLNodePoCManager:
 
     def start_mlnode_container(self, ssh_info: Dict, instance_id: int) -> Optional[str]:
         """
-        Start the official MLNode Docker container on the remote GPU.
+        Wait for the official MLNode Docker container to be ready on the remote GPU.
         The container is already running (started by Vast.ai), we just need to
-        wait for it to be ready and get its URL.
+        wait for the MLNode API to become accessible.
 
         Args:
-            ssh_info: SSH connection details
+            ssh_info: Connection details (contains host/port info)
             instance_id: Vast.ai instance ID
 
         Returns:
             MLNode base URL if successful
         """
-        logger.info("Starting MLNode container on remote GPU...")
+        logger.info("Waiting for MLNode container to be ready on remote GPU...")
+        logger.info("Note: MLNode Docker image does not include SSH - checking API only")
 
-        # Step 1: Wait for SSH
-        logger.info("Step 1: Waiting for SSH to be ready...")
-        if not self.wait_for_ssh_ready(ssh_info, max_wait=self.ssh_ready_timeout):
-            logger.error("SSH failed to be ready")
-            return None
-
-        # Step 2: Wait for MLNode to be ready
-        # Note: Vast.ai instance IS the MLNode container already running
-        # No need to check docker or start anything - just wait for the API
-        logger.info("Step 2: Waiting for MLNode API to be ready...")
-
+        # Build MLNode URL from connection info
         mlnode_host = ssh_info['host']
         mlnode_url = f"http://{mlnode_host}:{self.mlnode_port}"
 
+        logger.info(f"MLNode URL: {mlnode_url}")
+        logger.info("Waiting for MLNode API to become accessible...")
+        logger.info("This may take 15-30 minutes for model download and initialization")
+
+        # Wait for MLNode API to be ready
+        # Note: Vast.ai instance IS the MLNode container already running
+        # The container exposes port 5070 directly - no SSH needed
         if not self.wait_for_mlnode_ready(mlnode_url, timeout=self.mlnode_startup_timeout):
             logger.error("MLNode failed to start within timeout")
-            logger.error(f"Check MLNode logs via SSH: ssh -p {ssh_info['port']} {ssh_info['username']}@{ssh_info['host']}")
+            logger.error(f"Timeout: {self.mlnode_startup_timeout}s ({self.mlnode_startup_timeout//60} minutes)")
+            logger.error(f"Try checking Vast.ai console for instance {instance_id}")
             return None
 
         logger.info(f"✅ MLNode is ready at {mlnode_url}")
