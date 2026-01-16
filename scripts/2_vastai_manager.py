@@ -316,9 +316,12 @@ class VastAIManager:
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
-                'label': 'gonka-poc-sprint'
+                'label': 'gonka-poc-sprint',
+                'env': {
+                    '-p 5070:5070/tcp': '1'  # Expose MLNode API port
+                }
             }
-            
+
             if onstart:
                 data['onstart'] = onstart
             

@@ -55,7 +55,7 @@ class MLNodePoCManager:
                    self.mlnode_startup_timeout, self.mlnode_startup_timeout // 60)
 
     def get_ssh_connection(self, vastai_manager, instance_id: int) -> Optional[Dict]:
-        """Get SSH connection details from Vast.ai instance"""
+        """Get connection details from Vast.ai instance"""
         try:
             time.sleep(1)  # Rate limiting
 
@@ -72,17 +72,25 @@ class MLNodePoCManager:
             ssh_host = status.get('ssh_host')
             ssh_port = status.get('ssh_port', 22)
 
+            # Get the externally mapped MLNode port (Vast.ai maps internal ports to external ones)
+            mlnode_port = status.get(f'direct_port_{self.mlnode_port}') or \
+                         status.get('direct_port_5070') or \
+                         self.mlnode_port  # Fallback to default
+
             if not ssh_host:
                 logger.error("SSH host not found in response")
                 return None
 
+            logger.info(f"Instance ports - SSH: {ssh_port}, MLNode API: {mlnode_port} (internal: {self.mlnode_port})")
+
             return {
                 'host': ssh_host,
                 'port': int(ssh_port),
-                'username': 'root'
+                'username': 'root',
+                'mlnode_port': int(mlnode_port)
             }
         except Exception as e:
-            logger.error(f"Failed to get SSH info: {e}")
+            logger.error(f"Failed to get connection info: {e}")
             return None
 
     def wait_for_ssh_ready(self, ssh_info: Dict, max_wait: int = 900) -> bool:
@@ -228,7 +236,8 @@ class MLNodePoCManager:
 
         # Build MLNode URL from connection info
         mlnode_host = ssh_info['host']
-        mlnode_url = f"http://{mlnode_host}:{self.mlnode_port}"
+        mlnode_port = ssh_info.get('mlnode_port', self.mlnode_port)  # Use mapped port
+        mlnode_url = f"http://{mlnode_host}:{mlnode_port}"
 
         logger.info(f"MLNode URL: {mlnode_url}")
         logger.info("Waiting for MLNode API to become accessible...")
@@ -236,7 +245,7 @@ class MLNodePoCManager:
 
         # Wait for MLNode API to be ready
         # Note: Vast.ai instance IS the MLNode container already running
-        # The container exposes port 5070 directly - no SSH needed
+        # The container exposes port 5070 internally, but Vast.ai maps it to an external port
         if not self.wait_for_mlnode_ready(mlnode_url, timeout=self.mlnode_startup_timeout):
             logger.error("MLNode failed to start within timeout")
             logger.error(f"Timeout: {self.mlnode_startup_timeout}s ({self.mlnode_startup_timeout//60} minutes)")
