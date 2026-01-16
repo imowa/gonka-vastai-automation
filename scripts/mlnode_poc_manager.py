@@ -72,10 +72,19 @@ class MLNodePoCManager:
             ssh_host = status.get('ssh_host')
             ssh_port = status.get('ssh_port', 22)
 
+            # DEBUG: Log all port-related fields
+            port_fields = {k: v for k, v in status.items() if 'port' in k.lower() or 'tcp' in k.lower()}
+            logger.info(f"DEBUG - Available port fields: {port_fields}")
+
             # Get the externally mapped MLNode port (Vast.ai maps internal ports to external ones)
-            mlnode_port = status.get(f'direct_port_{self.mlnode_port}') or \
-                         status.get('direct_port_5070') or \
-                         self.mlnode_port  # Fallback to default
+            # Try multiple possible field names
+            mlnode_port = (
+                status.get(f'direct_port_{self.mlnode_port}') or
+                status.get('direct_port_5070') or
+                status.get(f'ports.{self.mlnode_port}/tcp') or
+                status.get('port_mappings', {}).get(str(self.mlnode_port)) or
+                self.mlnode_port  # Fallback to default
+            )
 
             if not ssh_host:
                 logger.error("SSH host not found in response")
