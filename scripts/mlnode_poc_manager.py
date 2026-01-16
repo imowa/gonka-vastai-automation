@@ -73,7 +73,13 @@ class MLNodePoCManager:
             ssh_port = status.get('ssh_port', 22)
 
             # DEBUG: Log ALL fields to find the port mapping
-            logger.info(f"DEBUG - ALL status fields (first 50 chars): {list(status.keys())[:50]}")
+            all_fields = list(status.keys())
+            logger.info(f"DEBUG - Total fields: {len(all_fields)}")
+            logger.info(f"DEBUG - ALL status fields: {all_fields}")
+
+            # Check extra_env for port mapping (VAST_TCP_PORT_5070=10087)
+            extra_env = status.get('extra_env', {})
+            logger.info(f"DEBUG - extra_env: {extra_env}")
 
             # Look for any field containing "5070" or the mlnode port
             matching_fields = {}
@@ -82,9 +88,16 @@ class MLNodePoCManager:
                     matching_fields[k] = v
             logger.info(f"DEBUG - Fields containing '5070': {matching_fields}")
 
+            # Try to get port from extra_env (VAST_TCP_PORT_5070)
+            mlnode_port_from_env = None
+            if isinstance(extra_env, dict):
+                mlnode_port_from_env = extra_env.get(f'VAST_TCP_PORT_{self.mlnode_port}')
+
+            logger.info(f"DEBUG - VAST_TCP_PORT_{self.mlnode_port} from env: {mlnode_port_from_env}")
+
             # Get the externally mapped MLNode port (Vast.ai maps internal ports to external ones)
-            # Try multiple possible field names
             mlnode_port = (
+                mlnode_port_from_env or  # Try environment variable first
                 status.get(f'direct_port_{self.mlnode_port}') or
                 status.get('direct_port_5070') or
                 status.get(f'ports.{self.mlnode_port}/tcp') or
