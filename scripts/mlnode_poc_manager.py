@@ -98,27 +98,39 @@ class MLNodePoCManager:
             # Vast.ai sets VAST_TCP_PORT_5070 environment variable inside the container
             mlnode_port_from_ssh = None
             if ssh_host and ssh_port:
-                try:
-                    import paramiko
-                    ssh = paramiko.SSHClient()
-                    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    private_key = paramiko.RSAKey.from_private_key_file(self.ssh_key_path)
-                    ssh.connect(
-                        hostname=ssh_host,
-                        port=ssh_port,
-                        username='root',
-                        pkey=private_key,
-                        timeout=5
-                    )
-                    stdin, stdout, stderr = ssh.exec_command("echo $VAST_TCP_PORT_5070", timeout=5)
-                    port_output = stdout.read().decode().strip()
-                    ssh.close()
+                # Wait for SSH to be ready (max 60 seconds)
+                logger.info("Waiting for SSH to query port mapping...")
+                max_attempts = 12  # 12 attempts * 5 seconds = 60 seconds
+                for attempt in range(max_attempts):
+                    try:
+                        import paramiko
+                        ssh = paramiko.SSHClient()
+                        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                        private_key = paramiko.RSAKey.from_private_key_file(self.ssh_key_path)
+                        ssh.connect(
+                            hostname=ssh_host,
+                            port=ssh_port,
+                            username='root',
+                            pkey=private_key,
+                            timeout=5
+                        )
+                        stdin, stdout, stderr = ssh.exec_command("echo $VAST_TCP_PORT_5070", timeout=5)
+                        port_output = stdout.read().decode().strip()
+                        ssh.close()
 
-                    if port_output and port_output.isdigit():
-                        mlnode_port_from_ssh = int(port_output)
-                        logger.info(f"DEBUG - Port from container env: {mlnode_port_from_ssh}")
-                except Exception as e:
-                    logger.warning(f"Could not query port via SSH (this is normal if container just started): {e}")
+                        if port_output and port_output.isdigit():
+                            mlnode_port_from_ssh = int(port_output)
+                            logger.info(f"✅ Port from container env: {mlnode_port_from_ssh}")
+                            break
+                        else:
+                            logger.debug(f"Port not available yet (attempt {attempt+1}/{max_attempts})")
+                    except Exception as e:
+                        if attempt < max_attempts - 1:
+                            logger.debug(f"SSH not ready (attempt {attempt+1}/{max_attempts}): {e}")
+                            time.sleep(5)
+                        else:
+                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts. Will try default port.")
+                            break
 
             # Get the externally mapped MLNode port
             mlnode_port = (
