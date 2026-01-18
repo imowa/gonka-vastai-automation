@@ -72,26 +72,35 @@ class MLNodePoCManager:
             ssh_host = status.get('ssh_host')
             ssh_port = status.get('ssh_port', 22)
 
-            # DEBUG: Log ALL fields to find the port mapping
-            all_fields = list(status.keys())
-            logger.info(f"DEBUG - Total fields: {len(all_fields)}")
-            logger.info(f"DEBUG - ALL status fields: {all_fields}")
+            # DEBUG: Log ALL port-related fields with their VALUES
+            logger.info("=" * 60)
+            logger.info("DEBUG - Vast.ai API Response Analysis")
+            logger.info("=" * 60)
+
+            # Log all fields containing "port" in the name
+            port_fields = {k: v for k, v in status.items() if 'port' in k.lower()}
+            logger.info(f"DEBUG - Port-related fields ({len(port_fields)}):")
+            for key, value in port_fields.items():
+                logger.info(f"  {key}: {value}")
 
             # Check extra_env for port mapping
             extra_env = status.get('extra_env', [])
             logger.info(f"DEBUG - extra_env: {extra_env}")
 
-            # Try to get the external port from Vast.ai API fields
-            # Vast.ai stores mapped ports in direct_port_XXXX fields
-            mlnode_port_from_api = status.get(f'direct_port_{self.mlnode_port}')
-            if not mlnode_port_from_api:
-                # Also check for common port field names
-                for key in status.keys():
-                    if 'port' in key.lower() and '8080' in str(key):
-                        logger.info(f"DEBUG - Found port-related field: {key} = {status[key]}")
+            # Check for common port mapping fields
+            logger.info("DEBUG - Checking specific fields:")
+            logger.info(f"  direct_port_{self.mlnode_port}: {status.get(f'direct_port_{self.mlnode_port}')}")
+            logger.info(f"  direct_port_count: {status.get('direct_port_count')}")
+            logger.info(f"  direct_port_start: {status.get('direct_port_start')}")
+            logger.info(f"  direct_port_end: {status.get('direct_port_end')}")
+            logger.info(f"  ports: {status.get('ports')}")
+            logger.info(f"  port_forwards: {status.get('port_forwards')}")
+            logger.info("=" * 60)
 
+            # Try to get the external port from Vast.ai API fields
+            mlnode_port_from_api = status.get(f'direct_port_{self.mlnode_port}')
             if mlnode_port_from_api:
-                logger.info(f"DEBUG - Found direct_port_{self.mlnode_port}: {mlnode_port_from_api}")
+                logger.info(f"✅ Found external port in API: {mlnode_port_from_api}")
 
             # Parse extra_env to find port mappings (it's a list of lists or strings)
             mlnode_port_from_docker_args = None
