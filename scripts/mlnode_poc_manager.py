@@ -120,9 +120,10 @@ class MLNodePoCManager:
             # We need to read it from /proc/1/environ since it's not in the SSH shell environment
             mlnode_port_from_ssh = None
             if ssh_host and ssh_port:
-                # Wait for SSH to be ready (max 60 seconds)
+                # Wait for container to start and port to be available (max 3 minutes)
                 logger.info("Querying container for external port mapping...")
-                max_attempts = 12  # 12 attempts * 5 seconds = 60 seconds
+                logger.info("(Container may need time to start after host SSH is ready)")
+                max_attempts = 36  # 36 attempts * 5 seconds = 180 seconds (3 minutes)
                 for attempt in range(max_attempts):
                     try:
                         import paramiko
@@ -150,14 +151,18 @@ class MLNodePoCManager:
                             logger.info(f"✅ Found external port in container: {mlnode_port_from_ssh}")
                             break
                         else:
-                            logger.debug(f"Port not available yet (attempt {attempt+1}/{max_attempts})")
+                            if attempt % 6 == 0:  # Log every 30 seconds
+                                elapsed = (attempt + 1) * 5
+                                logger.info(f"Container not ready yet ({elapsed}s elapsed, waiting for port...)")
                     except Exception as e:
                         if attempt < max_attempts - 1:
-                            logger.debug(f"SSH not ready (attempt {attempt+1}/{max_attempts}): {e}")
+                            if attempt % 6 == 0:  # Log every 30 seconds
+                                elapsed = (attempt + 1) * 5
+                                logger.debug(f"Waiting for container ({elapsed}s elapsed): {str(e)[:100]}")
                             time.sleep(5)
                         else:
-                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts.")
-                            logger.warning("Will try to extract from Docker logs or use default port.")
+                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts ({max_attempts * 5}s).")
+                            logger.warning("Container may not have started yet. Will use default port and retry later.")
                             break
 
             # Get the externally mapped MLNode port
