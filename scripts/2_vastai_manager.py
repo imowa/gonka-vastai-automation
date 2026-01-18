@@ -314,13 +314,13 @@ class VastAIManager:
             )
 
             # Vast.ai API parameters
-            # Note: Port mapping must be in image_args, not env
+            # Note: env field must be a STRING with Docker run options, not a dict/array
             data = {
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
                 'label': 'gonka-poc-sprint',
-                'image_args': ['-p', '5070:5070/tcp']  # Docker run arguments for port mapping
+                'env': "-p 5070:5070/tcp"  # Docker run options as string
             }
 
             if onstart:
