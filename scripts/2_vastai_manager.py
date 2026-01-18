@@ -314,15 +314,13 @@ class VastAIManager:
             )
 
             # Vast.ai API parameters
-            # Note: env must be a dict (for environment variables)
-            # Port mapping: Rely on EXPOSE directive in MLNode Dockerfile
-            # According to Vast.ai docs: "Any EXPOSE commands in your docker image will be automatically mapped"
+            # Try docker_options field for port mapping (separate from env)
             data = {
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
                 'label': 'gonka-poc-sprint',
-                'env': {}  # Empty dict - rely on EXPOSE 5070 in Dockerfile
+                'docker_options': '-p 5070:5070/tcp'  # Try this field for docker run options
             }
 
             if onstart:
