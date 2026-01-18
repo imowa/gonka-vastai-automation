@@ -81,6 +81,18 @@ class MLNodePoCManager:
             extra_env = status.get('extra_env', [])
             logger.info(f"DEBUG - extra_env: {extra_env}")
 
+            # Try to get the external port from Vast.ai API fields
+            # Vast.ai stores mapped ports in direct_port_XXXX fields
+            mlnode_port_from_api = status.get(f'direct_port_{self.mlnode_port}')
+            if not mlnode_port_from_api:
+                # Also check for common port field names
+                for key in status.keys():
+                    if 'port' in key.lower() and '8080' in str(key):
+                        logger.info(f"DEBUG - Found port-related field: {key} = {status[key]}")
+
+            if mlnode_port_from_api:
+                logger.info(f"DEBUG - Found direct_port_{self.mlnode_port}: {mlnode_port_from_api}")
+
             # Parse extra_env to find port mappings (it's a list of lists or strings)
             mlnode_port_from_docker_args = None
             if isinstance(extra_env, (list, str)):
@@ -134,12 +146,13 @@ class MLNodePoCManager:
 
             # Get the externally mapped MLNode port
             mlnode_port = (
-                mlnode_port_from_ssh or  # Try SSH query first (most accurate)
+                mlnode_port_from_api or  # Try API field first (if exists)
+                mlnode_port_from_ssh or  # Try SSH query (most accurate but often fails)
                 mlnode_port_from_docker_args or  # Try parsing extra_env
                 self.mlnode_port  # Fallback to default (will likely fail but worth trying)
             )
 
-            logger.info(f"DEBUG - Final port selection: {mlnode_port} (SSH: {mlnode_port_from_ssh}, Docker args: {mlnode_port_from_docker_args}, Default: {self.mlnode_port})")
+            logger.info(f"DEBUG - Final port selection: {mlnode_port} (API: {mlnode_port_from_api}, SSH: {mlnode_port_from_ssh}, Docker args: {mlnode_port_from_docker_args}, Default: {self.mlnode_port})")
 
             if not ssh_host:
                 logger.error("SSH host not found in response")
