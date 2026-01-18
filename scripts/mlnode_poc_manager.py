@@ -120,11 +120,11 @@ class MLNodePoCManager:
             # We need to read it from /proc/1/environ since it's not in the SSH shell environment
             mlnode_port_from_ssh = None
             if ssh_host and ssh_port:
-                # Wait for container to start and port to be available (max 15 minutes)
-                # Some GPU instances are slow to download Docker images and start containers
+                # Wait for container to start and port to be available (max 30 minutes)
+                # Some GPU instances are very slow to download Docker images and start containers
                 logger.info("Querying container for external port mapping...")
-                logger.info("(Container may need time to start after host SSH is ready - max 15 min)")
-                max_attempts = 180  # 180 attempts * 5 seconds = 900 seconds (15 minutes)
+                logger.info("(Container may need time to start after host SSH is ready - max 30 min)")
+                max_attempts = 360  # 360 attempts * 5 seconds = 1800 seconds (30 minutes)
                 for attempt in range(max_attempts):
                     try:
                         import paramiko
@@ -164,7 +164,7 @@ class MLNodePoCManager:
                                 logger.debug(f"Waiting for container ({elapsed}s elapsed, ~{remaining_min}m remaining)")
                             time.sleep(5)
                         else:
-                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts ({max_attempts * 5}s / 15 minutes).")
+                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts ({max_attempts * 5}s / 30 minutes).")
                             logger.warning("Container may not have started yet. Will use default port and retry later.")
                             break
 
