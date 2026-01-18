@@ -314,14 +314,13 @@ class VastAIManager:
             )
 
             # Vast.ai API parameters
+            # Note: Port mapping must be in image_args, not env
             data = {
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
                 'label': 'gonka-poc-sprint',
-                'env': {
-                    '-p': '5070:5070/tcp'  # Expose MLNode API port (Vast.ai will auto-assign external port if 5070 is taken)
-                }
+                'image_args': ['-p', '5070:5070/tcp']  # Docker run arguments for port mapping
             }
 
             if onstart:
