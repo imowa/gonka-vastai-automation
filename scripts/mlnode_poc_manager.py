@@ -116,11 +116,12 @@ class MLNodePoCManager:
                     logger.info(f"DEBUG - Found port mapping in extra_env: {mlnode_port_from_docker_args}:8080")
 
             # Try to get port from SSH command - query the container's environment
-            # Vast.ai sets VAST_TCP_PORT_8080 environment variable inside the container
+            # Vast.ai sets VAST_TCP_PORT_8080 environment variable in the container's init process
+            # We need to read it from /proc/1/environ since it's not in the SSH shell environment
             mlnode_port_from_ssh = None
             if ssh_host and ssh_port:
                 # Wait for SSH to be ready (max 60 seconds)
-                logger.info("Waiting for SSH to query port mapping...")
+                logger.info("Querying container for external port mapping...")
                 max_attempts = 12  # 12 attempts * 5 seconds = 60 seconds
                 for attempt in range(max_attempts):
                     try:
@@ -135,13 +136,18 @@ class MLNodePoCManager:
                             pkey=private_key,
                             timeout=5
                         )
-                        stdin, stdout, stderr = ssh.exec_command("echo $VAST_TCP_PORT_8080", timeout=5)
+                        # Read from /proc/1/environ (container's main process environment)
+                        # This contains VAST_TCP_PORT_8080=53590 even if it's not in SSH shell
+                        stdin, stdout, stderr = ssh.exec_command(
+                            "cat /proc/1/environ | tr '\\0' '\\n' | grep VAST_TCP_PORT_8080 | cut -d= -f2",
+                            timeout=5
+                        )
                         port_output = stdout.read().decode().strip()
                         ssh.close()
 
                         if port_output and port_output.isdigit():
                             mlnode_port_from_ssh = int(port_output)
-                            logger.info(f"✅ Port from container env: {mlnode_port_from_ssh}")
+                            logger.info(f"✅ Found external port in container: {mlnode_port_from_ssh}")
                             break
                         else:
                             logger.debug(f"Port not available yet (attempt {attempt+1}/{max_attempts})")
@@ -150,7 +156,8 @@ class MLNodePoCManager:
                             logger.debug(f"SSH not ready (attempt {attempt+1}/{max_attempts}): {e}")
                             time.sleep(5)
                         else:
-                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts. Will try default port.")
+                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts.")
+                            logger.warning("Will try to extract from Docker logs or use default port.")
                             break
 
             # Get the externally mapped MLNode port
