@@ -120,10 +120,11 @@ class MLNodePoCManager:
             # We need to read it from /proc/1/environ since it's not in the SSH shell environment
             mlnode_port_from_ssh = None
             if ssh_host and ssh_port:
-                # Wait for container to start and port to be available (max 3 minutes)
+                # Wait for container to start and port to be available (max 15 minutes)
+                # Some GPU instances are slow to download Docker images and start containers
                 logger.info("Querying container for external port mapping...")
-                logger.info("(Container may need time to start after host SSH is ready)")
-                max_attempts = 36  # 36 attempts * 5 seconds = 180 seconds (3 minutes)
+                logger.info("(Container may need time to start after host SSH is ready - max 15 min)")
+                max_attempts = 180  # 180 attempts * 5 seconds = 900 seconds (15 minutes)
                 for attempt in range(max_attempts):
                     try:
                         import paramiko
@@ -151,17 +152,19 @@ class MLNodePoCManager:
                             logger.info(f"✅ Found external port in container: {mlnode_port_from_ssh}")
                             break
                         else:
-                            if attempt % 6 == 0:  # Log every 30 seconds
+                            if attempt % 12 == 0:  # Log every 60 seconds (12 attempts × 5s)
                                 elapsed = (attempt + 1) * 5
-                                logger.info(f"Container not ready yet ({elapsed}s elapsed, waiting for port...)")
+                                remaining_min = ((max_attempts - attempt - 1) * 5) // 60
+                                logger.info(f"Container not ready yet ({elapsed}s elapsed, ~{remaining_min}m remaining)")
                     except Exception as e:
                         if attempt < max_attempts - 1:
-                            if attempt % 6 == 0:  # Log every 30 seconds
+                            if attempt % 12 == 0:  # Log every 60 seconds
                                 elapsed = (attempt + 1) * 5
-                                logger.debug(f"Waiting for container ({elapsed}s elapsed): {str(e)[:100]}")
+                                remaining_min = ((max_attempts - attempt - 1) * 5) // 60
+                                logger.debug(f"Waiting for container ({elapsed}s elapsed, ~{remaining_min}m remaining)")
                             time.sleep(5)
                         else:
-                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts ({max_attempts * 5}s).")
+                            logger.warning(f"Could not query port via SSH after {max_attempts} attempts ({max_attempts * 5}s / 15 minutes).")
                             logger.warning("Container may not have started yet. Will use default port and retry later.")
                             break
 
