@@ -35,7 +35,7 @@ class MLNodePoCManager:
 
         # MLNode configuration
         self.poc_model = os.getenv('MLNODE_POC_MODEL', 'Qwen/Qwen2.5-7B-Instruct')
-        self.mlnode_port = int(os.getenv('MLNODE_PORT', '5070'))
+        self.mlnode_port = int(os.getenv('MLNODE_PORT', '8080'))  # Official MLNode runs on 8080
         self.mlnode_api_segment = os.getenv('MLNODE_API_SEGMENT', '/api/v1')
         self.mlnode_inference_segment = os.getenv('MLNODE_INFERENCE_SEGMENT', '/v1')
 
@@ -85,17 +85,17 @@ class MLNodePoCManager:
             mlnode_port_from_docker_args = None
             if isinstance(extra_env, (list, str)):
                 env_str = str(extra_env)
-                # Look for patterns like "5070:XXXX" in the extra_env
+                # Look for patterns like "8080:XXXX" in the extra_env
                 import re
-                # Match port mappings like "-p 12345:5070" or "12345:5070"
-                port_pattern = r'(\d+):5070'
+                # Match port mappings like "-p 12345:8080" or "12345:8080"
+                port_pattern = r'(\d+):8080'
                 matches = re.findall(port_pattern, env_str)
                 if matches:
                     mlnode_port_from_docker_args = int(matches[0])
-                    logger.info(f"DEBUG - Found port mapping in extra_env: {mlnode_port_from_docker_args}:5070")
+                    logger.info(f"DEBUG - Found port mapping in extra_env: {mlnode_port_from_docker_args}:8080")
 
             # Try to get port from SSH command - query the container's environment
-            # Vast.ai sets VAST_TCP_PORT_5070 environment variable inside the container
+            # Vast.ai sets VAST_TCP_PORT_8080 environment variable inside the container
             mlnode_port_from_ssh = None
             if ssh_host and ssh_port:
                 # Wait for SSH to be ready (max 60 seconds)
@@ -114,7 +114,7 @@ class MLNodePoCManager:
                             pkey=private_key,
                             timeout=5
                         )
-                        stdin, stdout, stderr = ssh.exec_command("echo $VAST_TCP_PORT_5070", timeout=5)
+                        stdin, stdout, stderr = ssh.exec_command("echo $VAST_TCP_PORT_8080", timeout=5)
                         port_output = stdout.read().decode().strip()
                         ssh.close()
 

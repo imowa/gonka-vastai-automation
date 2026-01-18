@@ -314,13 +314,13 @@ class VastAIManager:
             )
 
             # Vast.ai API parameters
-            # Try env field with Docker options as dict keys (last attempt)
+            # Official MLNode runs on port 8080 (confirmed by docker-compose.mlnode.yml)
             data = {
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
                 'label': 'gonka-poc-sprint',
-                'env': {'-p 5070:5070': ''}  # Try Docker option as dict key
+                'env': {'-p 8080:8080': ''}  # Expose MLNode API port 8080
             }
 
             if onstart:
