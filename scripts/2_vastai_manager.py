@@ -314,19 +314,14 @@ class VastAIManager:
             )
 
             # Vast.ai API parameters
-            # Port mapping format confirmed by Vast.ai customer service
+            # Port mapping: Use docker_run_options field (confirmed by Vast.ai support)
+            # The ports field is for seller offers, not buyer instance configuration
             data = {
                 'client_id': 'me',
                 'image': resolved_image,
                 'disk': disk,
                 'label': 'gonka-poc-sprint',
-                'ports': [
-                    {
-                        'container_port': 5070,
-                        'host_port': 5070,
-                        'protocol': 'tcp'
-                    }
-                ]
+                'docker_run_options': '-p 5070:5070'  # Docker run options for port mapping
             }
 
             if onstart:
