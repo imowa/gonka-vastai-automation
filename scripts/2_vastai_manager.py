@@ -291,42 +291,60 @@ class VastAIManager:
         offer_id: int,
         image: Optional[str] = None,
         disk: int = 50,
-        onstart: Optional[str] = None
+        onstart: Optional[str] = None,
+        template_id: Optional[str] = None
     ) -> Optional[int]:
         """
         Create (rent) a GPU instance
-        
+
         Args:
             offer_id: ID of the offer to rent
-            image: Docker image to use
-            disk: Disk size in GB
+            image: Docker image to use (ignored if template_id is provided)
+            disk: Disk size in GB (ignored if template_id is provided)
             onstart: Startup script (optional)
-        
+            template_id: Vast.ai template ID (recommended approach)
+
         Returns:
             Instance ID if successful, None otherwise
         """
         logger.info(f"Creating instance from offer {offer_id}...")
-        
+
         try:
-            resolved_image = image or os.getenv(
-                "DOCKER_IMAGE",
-                os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
-            )
+            # Check for template ID from parameter or environment variable
+            template = template_id or os.getenv('VASTAI_TEMPLATE_ID')
 
-            # Vast.ai API parameters
-            # Official MLNode runs on port 8080 (confirmed by docker-compose.mlnode.yml)
-            data = {
-                'client_id': 'me',
-                'image': resolved_image,
-                'disk': disk,
-                'label': 'gonka-poc-sprint',
-                'env': {'-p 8080:8080': ''}  # Expose MLNode API port 8080
-            }
+            if template:
+                # Use template approach (recommended by Vast.ai)
+                logger.info(f"Using Vast.ai template: {template}")
+                data = {
+                    'client_id': 'me',
+                    'template_id': template,
+                    'label': 'gonka-poc-sprint'
+                }
 
-            if onstart:
-                data['onstart'] = onstart
-            
-            logger.info("Using image: %s", resolved_image)
+                # onstart can override template's onstart script
+                if onstart:
+                    data['onstart'] = onstart
+            else:
+                # Fallback to manual configuration (old approach)
+                resolved_image = image or os.getenv(
+                    "DOCKER_IMAGE",
+                    os.getenv("VASTAI_DOCKER_IMAGE", "vllm/vllm-openai:latest"),
+                )
+
+                logger.info("Using image: %s", resolved_image)
+                # Official MLNode runs on port 8080 (confirmed by docker-compose.mlnode.yml)
+                data = {
+                    'client_id': 'me',
+                    'image': resolved_image,
+                    'disk': disk,
+                    'label': 'gonka-poc-sprint',
+                    'env': {'-p 8080:8080': ''}  # Expose MLNode API port 8080
+                }
+
+                if onstart:
+                    data['onstart'] = onstart
+
             response = self._make_request('PUT', f'/asks/{offer_id}/', data=data)
             
             if response.get('success'):
