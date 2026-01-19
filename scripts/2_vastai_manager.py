@@ -315,10 +315,11 @@ class VastAIManager:
 
             if template:
                 # Use template approach (recommended by Vast.ai)
+                # Use template_hash_id for string-based template identifiers
                 logger.info(f"Using Vast.ai template: {template}")
                 data = {
                     'client_id': 'me',
-                    'template_id': template,
+                    'template_hash_id': template,  # Use template_hash_id (not template_id)
                     'label': 'gonka-poc-sprint'
                 }
 
