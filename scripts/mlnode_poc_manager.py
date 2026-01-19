@@ -168,15 +168,22 @@ class MLNodePoCManager:
                             logger.warning("Container may not have started yet. Will use default port and retry later.")
                             break
 
+            # Calculate SSH tunnel port (Vast.ai uses SSH port + 1 for the first forwarded port)
+            # The SSH tunnel command is: -R *:SSH_PORT:localhost:22 -R *:SSH_PORT+1:localhost:8080
+            mlnode_port_from_ssh_tunnel = ssh_port + 1 if ssh_port else None
+
             # Get the externally mapped MLNode port
+            # Priority: API field > SSH tunnel calculation > SSH env var > Docker args > Default
+            # NOTE: VAST_TCP_PORT_8080 env var is often incorrect, so we prioritize SSH tunnel calculation
             mlnode_port = (
                 mlnode_port_from_api or  # Try API field first (if exists)
-                mlnode_port_from_ssh or  # Try SSH query (most accurate but often fails)
+                mlnode_port_from_ssh_tunnel or  # SSH port + 1 (most reliable!)
+                mlnode_port_from_ssh or  # Try SSH env var query (often incorrect)
                 mlnode_port_from_docker_args or  # Try parsing extra_env
                 self.mlnode_port  # Fallback to default (will likely fail but worth trying)
             )
 
-            logger.info(f"DEBUG - Final port selection: {mlnode_port} (API: {mlnode_port_from_api}, SSH: {mlnode_port_from_ssh}, Docker args: {mlnode_port_from_docker_args}, Default: {self.mlnode_port})")
+            logger.info(f"DEBUG - Final port selection: {mlnode_port} (API: {mlnode_port_from_api}, SSH tunnel: {mlnode_port_from_ssh_tunnel}, SSH env: {mlnode_port_from_ssh}, Docker args: {mlnode_port_from_docker_args}, Default: {self.mlnode_port})")
 
             if not ssh_host:
                 logger.error("SSH host not found in response")
