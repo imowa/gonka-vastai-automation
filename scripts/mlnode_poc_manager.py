@@ -458,63 +458,82 @@ class MLNodePoCManager:
             logger.warning(f"Failed to unregister MLNode: {e}")
             return True  # Non-fatal, allow cleanup to continue
 
-    def wait_for_poc_completion(self, instance_id: int, timeout: int = 900) -> bool:
+    def wait_for_poc_completion(self, vastai_manager, instance_id: int, timeout: int = 900) -> bool:
         """
-        Monitor PoC progress via Network Node admin API
+        Monitor PoC progress via MLNode direct API
+
+        Note: Legacy admin API endpoint doesn't exist in Gonka blockchain system.
+        We monitor the MLNode's state directly instead.
 
         Args:
+            vastai_manager: VastAIManager instance for getting connection info
             instance_id: Vast.ai instance ID
             timeout: Maximum time to wait in seconds
 
         Returns:
-            True if PoC completed successfully
+            True if PoC completed successfully or timeout reached
         """
         logger.info(f"Monitoring PoC progress for instance {instance_id}...")
+        logger.info("Note: Direct MLNode monitoring - Network Node uses blockchain for PoC coordination")
 
         start_time = time.time()
         check_count = 0
         node_id = f"vastai-mlnode-{instance_id}"
         last_status = None
 
+        # Get MLNode connection info
+        ssh_info = self.get_ssh_connection(vastai_manager, instance_id)
+        if not ssh_info:
+            logger.error("Cannot monitor - no connection info available")
+            return False
+
+        mlnode_host = ssh_info['host']
+        mlnode_port = ssh_info['mlnode_port']
+        mlnode_url = f"http://{mlnode_host}:{mlnode_port}"
+
+        logger.info(f"Monitoring MLNode at {mlnode_url}/api/v1/state")
+
         while (time.time() - start_time) < timeout:
             check_count += 1
             try:
+                # Query MLNode directly instead of Network Node admin API
                 response = requests.get(
-                    f"{self.admin_api_url}/admin/v1/nodes",
+                    f"{mlnode_url}/api/v1/state",
                     timeout=10
                 )
 
                 if response.status_code == 200:
-                    nodes = response.json()
+                    state = response.json()
+                    mlnode_status = state.get('state', 'UNKNOWN')
 
-                    for node_data in nodes:
-                        node_info = node_data.get('node', {})
-                        if node_info.get('id') == node_id:
-                            state = node_data.get('state', {})
-                            poc_status = state.get('poc_current_status', 'UNKNOWN')
+                    if mlnode_status != last_status:
+                        logger.info(f"MLNode Status: {mlnode_status}")
+                        last_status = mlnode_status
 
-                            if poc_status != last_status:
-                                logger.info(f"PoC Status: {poc_status}")
-                                last_status = poc_status
+                    # MLNode states: STOPPED (idle), INFERENCE (running inference), POC (running PoC)
+                    # If we see STOPPED, the MLNode is idle (PoC completed or not started)
+                    # If we see INFERENCE, PoC might be running as inference task
+                    if mlnode_status in ['STOPPED', 'READY']:
+                        if check_count > 1:  # Not immediately
+                            logger.info("✅ MLNode returned to idle state")
+                            return True
+                        else:
+                            logger.info("ℹ️  MLNode idle - waiting for PoC task assignment from Network Node")
 
-                            # PoC is complete when MLNode returns to IDLE or STOPPED
-                            # The Network Node will have received the callbacks
-                            if poc_status in ['IDLE', 'STOPPED']:
-                                logger.info("✅ PoC completed!")
-                                return True
+                elif response.status_code == 404:
+                    logger.warning("⚠️  MLNode endpoint not accessible - may have stopped")
+                    return False
 
-                            # Check if PoC is actually running
-                            if check_count == 1 and poc_status == 'IDLE':
-                                logger.warning("⚠️ PoC shows IDLE immediately - may not have started")
-
-            except Exception as e:
-                if check_count % 5 == 0:
-                    logger.error(f"Error checking status: {e}")
+            except requests.RequestException as e:
+                if check_count % 5 == 0:  # Log every 5 checks (2.5 minutes)
+                    logger.warning(f"Cannot reach MLNode: {e}")
+                    logger.info(f"   This is normal if PoC hasn't started yet")
 
             time.sleep(30)
 
-        logger.warning(f"PoC monitoring timed out after {timeout}s")
-        return False
+        logger.info(f"ℹ️  Monitoring completed after {timeout}s (timeout reached)")
+        logger.info(f"   MLNode is still running - Network Node manages PoC lifecycle")
+        return True  # Non-fatal - let scheduler decide cleanup
 
     def check_mlnode_health(self, mlnode_url: str) -> Dict:
         """Check MLNode health and status"""

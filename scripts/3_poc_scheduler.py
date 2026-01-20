@@ -435,6 +435,7 @@ class PoCScheduler:
             logger.info("Network Node will automatically trigger PoC on the MLNode")
 
             success = mlnode_manager.wait_for_poc_completion(
+                self.vastai,
                 instance_id,
                 timeout=self.max_duration
             )
