@@ -407,16 +407,28 @@ class MLNodePoCManager:
                 timeout=30
             )
 
-            response.raise_for_status()
-
-            result = response.json()
-            logger.info(f"✅ MLNode registered: {node_id}")
-            logger.info(f"Response: {result}")
-            return True
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"✅ MLNode registered: {node_id}")
+                logger.info(f"Response: {result}")
+                return True
+            elif response.status_code == 404:
+                logger.warning("⚠️  Registration endpoint not available (Gonka uses on-chain registration)")
+                logger.warning("   MLNode will be accessible but not in legacy node registry")
+                logger.info(f"   MLNode endpoint: {mlnode_url}")
+                return True  # Non-fatal, MLNode is still usable
+            else:
+                logger.error(f"Registration failed: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return False
 
         except requests.RequestException as e:
             logger.error(f"Failed to register MLNode: {e}")
             if hasattr(e, 'response') and e.response:
+                if e.response.status_code == 404:
+                    logger.warning("⚠️  Registration endpoint not available (Gonka uses on-chain registration)")
+                    logger.info(f"   MLNode endpoint: {mlnode_url}")
+                    return True  # Non-fatal
                 logger.error(f"Response: {e.response.text}")
             return False
 
@@ -435,13 +447,16 @@ class MLNodePoCManager:
             if response.status_code == 200:
                 logger.info(f"✅ MLNode {node_id} unregistered")
                 return True
+            elif response.status_code == 404:
+                logger.info(f"ℹ️  Node {node_id} not found in registry (already unregistered or using on-chain registration)")
+                return True  # Non-fatal, node is gone anyway
             else:
                 logger.warning(f"Unregister returned: {response.status_code}")
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to unregister: {e}")
-            return False
+            logger.warning(f"Failed to unregister MLNode: {e}")
+            return True  # Non-fatal, allow cleanup to continue
 
     def wait_for_poc_completion(self, instance_id: int, timeout: int = 900) -> bool:
         """

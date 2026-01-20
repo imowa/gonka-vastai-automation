@@ -418,48 +418,54 @@ async def chat_completions(request: Request, version: str | None = None):
 # ============================================================================
 
 async def register_with_gonka():
-    """Register this proxy node with Gonka Network"""
-    
-    registration_data = {
-        "id": NODE_ID,
-        "host": VPS_IP,
-        "inference_port": PROXY_PORT,
-        "inference_segment": INFERENCE_SEGMENT,
-        "poc_port": PROXY_PORT,
-        "poc_segment": POC_SEGMENT,
-        "max_concurrent": 100,
-        "models": {
-            MODEL_NAME: {}
-        },
-        "hardware": [
-            {"type": HARDWARE_TYPE, "count": HARDWARE_COUNT}
-        ]
-    }
-    
-    print("\n🔗 Registering with Gonka Network...")
-    print(f"   Payload: {json.dumps(registration_data, indent=2)}")
-    
+    """Verify Gonka Network on-chain registration (informational only)"""
+
+    # Get the Gonka host address from environment
+    gonka_address = os.getenv("GONKA_HOST_ADDRESS")
+
+    if not gonka_address:
+        print("\n⚠️  GONKA_HOST_ADDRESS not set - skipping registration verification")
+        print("   This proxy will run but may not be discoverable by the Gonka network")
+        print(f"   Proxy endpoint: http://{VPS_IP}:{PROXY_PORT}")
+        return True  # Non-fatal, allow proxy to start
+
+    # Determine the correct Gonka API URL
+    # Use GONKA_ADMIN_API if it points to a Gonka node, otherwise use default seed node
+    network_api = GONKA_ADMIN_API
+    if "localhost" in network_api or "127.0.0.1" in network_api:
+        # localhost won't work for blockchain API, use public seed node
+        network_api = os.getenv("GONKA_NETWORK_NODE_URL", "http://node2.gonka.ai:8000")
+
+    print(f"\n🔗 Verifying on-chain registration with Gonka Network...")
+    print(f"   Address: {gonka_address}")
+    print(f"   Network: {network_api}")
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{GONKA_ADMIN_API}/admin/v1/nodes",
-                json=registration_data
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Check participant registration on Gonka blockchain
+            response = await client.get(
+                f"{network_api}/v1/participants/{gonka_address}"
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
-                print(f"✅ Successfully registered with Gonka Network")
-                print(f"   Node ID: {result.get('id')}")
-                print(f"   Endpoint: http://{VPS_IP}:{PROXY_PORT}")
+                print(f"✅ Verified on-chain registration")
+                print(f"   Public Key: {result.get('pubkey', 'N/A')}")
+                print(f"   Proxy endpoint: http://{VPS_IP}:{PROXY_PORT}")
                 return True
+            elif response.status_code == 404:
+                print(f"⚠️  Address not registered on Gonka blockchain")
+                print(f"   To register, follow: https://gonka.ai/host/quickstart/")
+                print(f"   Proxy will run but won't receive PoC tasks")
+                return True  # Non-fatal, allow proxy to start
             else:
-                print(f"❌ Registration failed: {response.status_code}")
-                print(f"   Response: {response.text}")
-                return False
-    
+                print(f"⚠️  Could not verify registration: {response.status_code}")
+                return True  # Non-fatal, allow proxy to start
+
     except Exception as e:
-        print(f"❌ Registration error: {str(e)}")
-        return False
+        print(f"⚠️  Registration verification failed: {str(e)}")
+        print(f"   Proxy will start anyway at http://{VPS_IP}:{PROXY_PORT}")
+        return True  # Non-fatal, allow proxy to start
 
 # ============================================================================
 # Startup and Main
