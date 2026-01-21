@@ -72,9 +72,9 @@ def test_block_calculations():
     logger.info(f"Blocks until PoC: {blocks_to_poc}")
     logger.info(f"PoC duration blocks: {poc_duration_blocks}")
 
-    # Each block ~3 seconds
-    seconds_to_poc = blocks_to_poc * 3
-    poc_duration = poc_duration_blocks * 3
+    # Each block is ~6 seconds (verified against gonkahub.com data)
+    seconds_to_poc = blocks_to_poc * 6
+    poc_duration = poc_duration_blocks * 6
 
     hours_to = seconds_to_poc // 3600
     mins_to = (seconds_to_poc % 3600) // 60

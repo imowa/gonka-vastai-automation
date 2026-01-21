@@ -71,7 +71,7 @@ class PoCMonitor:
     def calculate_time_to_poc(self, epoch_data: Dict) -> Optional[int]:
         """
         Calculate seconds until next PoC Sprint
-        
+
         Returns:
             seconds until PoC Sprint, or None if cannot calculate
         """
@@ -79,14 +79,14 @@ class PoCMonitor:
             current_block = epoch_data.get('block_height', 0)
             next_stages = epoch_data.get('next_epoch_stages', {})
             next_poc_start = next_stages.get('poc_start', 0)
-            
+
             blocks_remaining = next_poc_start - current_block
-            
-            # Each block is ~3 seconds (based on epoch length)
-            seconds_remaining = blocks_remaining * 3
-            
+
+            # Each block is ~6 seconds (verified against gonkahub.com data)
+            seconds_remaining = blocks_remaining * 6
+
             return max(0, int(seconds_remaining))
-            
+
         except (KeyError, TypeError, ValueError) as e:
             logger.error(f"Error calculating PoC time: {e}")
             return None
@@ -97,10 +97,11 @@ class PoCMonitor:
             next_stages = epoch_data.get('next_epoch_stages', {})
             poc_start = next_stages.get('poc_start', 0)
             poc_val_end = next_stages.get('poc_validation_end', 0)
-            
+
             blocks_duration = poc_val_end - poc_start
-            seconds_duration = blocks_duration * 3
-            
+            # Each block is ~6 seconds (verified against gonkahub.com data)
+            seconds_duration = blocks_duration * 6
+
             return int(seconds_duration)
         except (KeyError, TypeError, ValueError):
             return None
