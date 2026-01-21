@@ -428,16 +428,24 @@ async def register_proxy_with_admin_api():
     print(f"   Admin API: {GONKA_ADMIN_API}")
 
     # Build registration payload per official Gonka docs
+    # Format must match the Network Node Admin API expectations
     registration_payload = {
         "id": NODE_ID,
         "host": VPS_IP,
         "inference_port": PROXY_PORT,
+        "inference_segment": INFERENCE_SEGMENT,
         "poc_port": PROXY_PORT,
+        "poc_segment": POC_SEGMENT,
         "max_concurrent": 10,
-        "models": [
+        "models": {
+            MODEL_NAME: {
+                "args": []  # No vLLM args needed for Hyperbolic API proxy
+            }
+        },
+        "hardware": [
             {
-                "model": MODEL_NAME,
-                "vllm_args": []  # No vLLM args needed for Hyperbolic API proxy
+                "type": HARDWARE_TYPE,
+                "count": HARDWARE_COUNT
             }
         ]
     }
@@ -465,7 +473,11 @@ async def register_proxy_with_admin_api():
                 return True  # Non-fatal
             else:
                 print(f"⚠️  Registration returned status {response.status_code}")
-                print(f"   Response: {response.text[:200]}")
+                try:
+                    error_detail = response.json()
+                    print(f"   Error: {error_detail.get('error', response.text[:200])}")
+                except:
+                    print(f"   Response: {response.text[:200]}")
                 return True  # Non-fatal, allow proxy to start
 
     except Exception as e:
