@@ -429,13 +429,13 @@ async def register_proxy_with_admin_api():
 
     # Build registration payload per official Gonka docs
     # Format must match the Network Node Admin API expectations
+    # NOTE: This proxy is INFERENCE-ONLY - do NOT include poc_port
+    # Actual PoC is handled by ephemeral MLNode on Vast.ai (managed by scheduler)
     registration_payload = {
         "id": NODE_ID,
         "host": VPS_IP,
         "inference_port": PROXY_PORT,
         "inference_segment": INFERENCE_SEGMENT,
-        "poc_port": PROXY_PORT,
-        "poc_segment": POC_SEGMENT,
         "max_concurrent": 10,
         "models": {
             MODEL_NAME: {
@@ -448,6 +448,8 @@ async def register_proxy_with_admin_api():
                 "count": HARDWARE_COUNT
             }
         ]
+        # NOTE: Intentionally NO poc_port or poc_segment
+        # Network Node will NOT route PoC tasks to this proxy
     }
 
     try:
