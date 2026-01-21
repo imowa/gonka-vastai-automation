@@ -488,26 +488,31 @@ class MLNodePoCManager:
             logger.warning(f"Failed to unregister MLNode: {e}")
             return True  # Non-fatal, allow cleanup to continue
 
-    def wait_for_poc_completion(self, vastai_manager, instance_id: int, timeout: int = 900) -> bool:
+    def wait_for_poc_completion(self, vastai_manager, instance_id: int, timeout: int = 3600) -> bool:
         """
-        Monitor PoC progress via MLNode direct API
+        Monitor PoC progress via MLNode direct API for full PoC epoch duration
 
-        Note: Legacy admin API endpoint doesn't exist in Gonka blockchain system.
-        We monitor the MLNode's state directly instead.
+        PoC phases are approximately:
+        - 30-60 min: Active PoC (MLNode processes inference tasks as PoC work)
+        - MLNode transitions: STOPPED (waiting) → INFERENCE (running PoC) → STOPPED (complete)
+
+        Note: Direct MLNode monitoring - Network Node uses blockchain for PoC coordination
 
         Args:
             vastai_manager: VastAIManager instance for getting connection info
             instance_id: Vast.ai instance ID
-            timeout: Maximum time to wait in seconds
+            timeout: Maximum time to wait in seconds (default 3600s = 1 hour for full PoC phase)
 
         Returns:
-            True if PoC completed successfully or timeout reached
+            True when PoC phase completes (or timeout reached)
         """
         logger.info(f"Monitoring PoC progress for instance {instance_id}...")
+        logger.info(f"Timeout: {timeout}s (~{timeout//60} minutes for full PoC phase)")
         logger.info("Note: Direct MLNode monitoring - Network Node uses blockchain for PoC coordination")
 
         start_time = time.time()
         check_count = 0
+        saw_activity = False  # Track if we ever saw active PoC work
         node_id = f"vastai-mlnode-{instance_id}"
         last_status = None
 
@@ -522,6 +527,7 @@ class MLNodePoCManager:
         mlnode_url = f"http://{mlnode_host}:{mlnode_port}"
 
         logger.info(f"Monitoring MLNode at {mlnode_url}/api/v1/state")
+        logger.info("ℹ️  Waiting for PoC phase to start (MLNode will show INFERENCE state during active PoC)...")
 
         while (time.time() - start_time) < timeout:
             check_count += 1
@@ -540,15 +546,21 @@ class MLNodePoCManager:
                         logger.info(f"MLNode Status: {mlnode_status}")
                         last_status = mlnode_status
 
-                    # MLNode states: STOPPED (idle), INFERENCE (running inference), POC (running PoC)
-                    # If we see STOPPED, the MLNode is idle (PoC completed or not started)
-                    # If we see INFERENCE, PoC might be running as inference task
-                    if mlnode_status in ['STOPPED', 'READY']:
-                        if check_count > 1:  # Not immediately
-                            logger.info("✅ MLNode returned to idle state")
-                            return True
-                        else:
-                            logger.info("ℹ️  MLNode idle - waiting for PoC task assignment from Network Node")
+                    # MLNode states during PoC:
+                    # - STOPPED: Idle, waiting for PoC tasks (can last 20-30 min)
+                    # - INFERENCE: Running PoC computation work (can last 30-60 min)
+                    # - STOPPED again: PoC phase complete
+
+                    if mlnode_status == 'INFERENCE':
+                        saw_activity = True
+                        logger.info("🚀 PoC phase is ACTIVE - MLNode processing tasks")
+                    elif mlnode_status == 'STOPPED' and saw_activity:
+                        # We saw activity (INFERENCE) and now back to STOPPED = PoC complete
+                        logger.info("✅ PoC phase completed! MLNode returned to idle state after active work")
+                        return True
+                    elif mlnode_status == 'STOPPED' and not saw_activity:
+                        # Still waiting for PoC phase to start
+                        logger.info("ℹ️  MLNode idle - waiting for PoC task assignment from Network Node")
 
                 elif response.status_code == 404:
                     logger.warning("⚠️  MLNode endpoint not accessible - may have stopped")
