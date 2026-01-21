@@ -432,6 +432,36 @@ class MLNodePoCManager:
                 logger.error(f"Response: {e.response.text}")
             return False
 
+    def disable_mlnode(self, instance_id: int) -> bool:
+        """Disable MLNode (official graceful shutdown per Gonka docs)
+
+        Disables the node so it won't participate in the next PoC epoch,
+        but keeps it registered and running for the current epoch.
+        """
+        node_id = f"vastai-mlnode-{instance_id}"
+        logger.info(f"Disabling MLNode {node_id} (official graceful shutdown)...")
+
+        try:
+            response = requests.post(
+                f"{self.admin_api_url}/admin/v1/nodes/{node_id}/disable",
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                logger.info(f"✅ MLNode {node_id} disabled (won't participate in next epoch)")
+                return True
+            elif response.status_code == 404:
+                logger.info(f"ℹ️  Node {node_id} not found (already disabled or using on-chain registration)")
+                return True  # Non-fatal, node is already inactive
+            else:
+                logger.warning(f"Disable returned: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"Failed to disable MLNode: {e}")
+            return True  # Non-fatal, allow cleanup to continue
+
     def unregister_mlnode(self, instance_id: int) -> bool:
         """Unregister MLNode from the Network Node"""
         node_id = f"vastai-mlnode-{instance_id}"

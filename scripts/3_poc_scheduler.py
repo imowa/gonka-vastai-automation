@@ -462,23 +462,28 @@ class PoCScheduler:
     def stop_gpu_instance(self, instance_id: int) -> bool:
         """Stop and destroy GPU instance"""
         logger.info(f"Stopping instance {instance_id}...")
-        
-        # Get final cost
+
+        # Step 1: Disable MLNode on Network Node (official graceful shutdown)
+        from scripts.mlnode_poc_manager import MLNodePoCManager
+        mlnode_manager = MLNodePoCManager()
+        mlnode_manager.disable_mlnode(instance_id)
+
+        # Step 2: Get final cost
         cost = self.vastai.get_instance_cost(instance_id)
         if cost:
             logger.info(f"Total cost for this session: ${cost:.3f}")
             self.daily_spend += cost
             if self.current_session:
                 self.current_session.total_cost = cost
-        
-        # Stop the instance
+
+        # Step 3: Destroy the instance
         success = self.vastai.destroy_instance(instance_id)
-        
+
         if success:
             logger.info(f"✅ Instance {instance_id} stopped")
         else:
             logger.warning(f"Failed to stop instance {instance_id}")
-        
+
         return success
     
     def execute_poc_cycle(self, epoch_id: int):
