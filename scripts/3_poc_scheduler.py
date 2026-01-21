@@ -79,7 +79,7 @@ class PoCScheduler:
         self.vastai = VastAIManager()
         
         # Configuration
-        self.prep_time = int(os.getenv('POC_PREP_TIME', '1800'))  # 30 minutes
+        self.prep_time = int(os.getenv('POC_PREP_TIME', '3600'))  # 60 minutes (increased from 30)
         self.max_duration = int(os.getenv('MAX_POC_DURATION', '10800'))  # 3 hours safety
         self.check_interval = int(os.getenv('POC_CHECK_INTERVAL', '300'))  # 5 minutes
         self.max_daily_spend = float(os.getenv('MAX_DAILY_SPEND', '2.0'))
@@ -570,7 +570,7 @@ class PoCScheduler:
                 self.reset_daily_spend()
                 
                 # Get blockchain status
-                status = self.monitor.get_status()
+                status = self.monitor.get_status(prep_time=self.prep_time)
                 
                 if status['status'] != 'active':
                     logger.error("Cannot fetch blockchain data")

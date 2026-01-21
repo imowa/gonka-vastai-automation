@@ -577,6 +577,62 @@ class MLNodePoCManager:
         logger.info(f"   MLNode is still running - Network Node manages PoC lifecycle")
         return True  # Non-fatal - let scheduler decide cleanup
 
+    def verify_poc_readiness(self, mlnode_url: str, instance_id: int, seconds_until_poc: int) -> bool:
+        """
+        Verify MLNode is ready right before PoC starts
+
+        Args:
+            mlnode_url: Base URL of the MLNode
+            instance_id: Vast.ai instance ID
+            seconds_until_poc: Seconds until PoC phase starts
+
+        Returns:
+            True if MLNode is ready for PoC
+        """
+        node_id = f"vastai-mlnode-{instance_id}"
+        logger.info(f"Verifying MLNode readiness for PoC ({seconds_until_poc}s until start)...")
+
+        # Check MLNode health endpoint
+        try:
+            response = requests.get(
+                f"{mlnode_url}{self.mlnode_api_segment}/state",
+                timeout=10
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"⚠️  MLNode health check failed: {response.status_code}")
+                return False
+
+            state_data = response.json()
+            mlnode_state = state_data.get('state', 'UNKNOWN')
+            logger.info(f"✅ MLNode state verified: {mlnode_state}")
+
+            # Check Admin API registration
+            try:
+                reg_response = requests.get(
+                    f"{self.admin_api_url}/admin/v1/nodes/{node_id}",
+                    timeout=10
+                )
+
+                if reg_response.status_code == 200:
+                    logger.info(f"✅ MLNode registered in Admin API")
+                    return True
+                elif reg_response.status_code == 404:
+                    logger.warning(f"⚠️  Node not in Admin API registry (using on-chain registration)")
+                    return True  # Non-fatal - on-chain registration is sufficient
+                else:
+                    logger.warning(f"⚠️  Admin API check failed: {reg_response.status_code}")
+                    return True  # Non-fatal - MLNode endpoint is responding
+
+            except Exception as e:
+                logger.warning(f"⚠️  Admin API verification failed: {e}")
+                logger.info(f"   This is normal if using on-chain registration only")
+                return True  # Non-fatal - endpoint is up
+
+        except Exception as e:
+            logger.error(f"❌ MLNode readiness verification failed: {e}")
+            return False
+
     def check_mlnode_health(self, mlnode_url: str) -> Dict:
         """Check MLNode health and status"""
         status = {

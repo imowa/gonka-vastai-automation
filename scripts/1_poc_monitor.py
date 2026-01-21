@@ -118,19 +118,24 @@ class PoCMonitor:
         """
         return 0 < seconds_to_poc <= prep_time
     
-    def get_status(self) -> Dict:
-        """Get current monitoring status"""
+    def get_status(self, prep_time: int = 1800) -> Dict:
+        """
+        Get current monitoring status
+
+        Args:
+            prep_time: Time needed to prepare GPU (seconds), default 30 min
+        """
         epoch_data = self.get_current_epoch()
-        
+
         if not epoch_data:
             return {"status": "error", "message": "Cannot fetch epoch data"}
-        
+
         seconds_to_poc = self.calculate_time_to_poc(epoch_data)
         poc_duration = self.get_poc_duration(epoch_data)
-        
+
         latest_epoch = epoch_data.get('latest_epoch', {})
         next_stages = epoch_data.get('next_epoch_stages', {})
-        
+
         return {
             "status": "active",
             "current_phase": epoch_data.get('phase'),
@@ -140,7 +145,7 @@ class PoCMonitor:
             "next_poc_block": next_stages.get('poc_start'),
             "seconds_to_poc": seconds_to_poc,
             "poc_duration_seconds": poc_duration,
-            "should_start_gpu": self.should_start_gpu(seconds_to_poc) if seconds_to_poc else False,
+            "should_start_gpu": self.should_start_gpu(seconds_to_poc, prep_time) if seconds_to_poc else False,
             "last_check": datetime.now().isoformat()
         }
 
