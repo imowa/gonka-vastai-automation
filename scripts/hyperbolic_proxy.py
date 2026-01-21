@@ -545,10 +545,15 @@ async def register_with_gonka():
 @app.on_event("startup")
 async def startup_event():
     """Register proxy with Gonka on startup"""
-    # Step 1: Register with Network Node Admin API (official node registration)
-    await register_proxy_with_admin_api()
-
-    # Step 2: Verify on-chain registration (informational)
+    # NOTE: Skip Admin API registration for proxy
+    #
+    # The proxy is INFERENCE-ONLY and doesn't need Admin API registration because:
+    # 1. Proxy is already registered on-chain
+    # 2. Admin API requires poc_port which proxy doesn't use
+    # 3. Actual PoC handling is via ephemeral Vast.ai MLNode (separate registration)
+    # 4. Network Node uses on-chain info for routing, Admin API is for local node mgmt
+    #
+    # Only verify on-chain registration (informational)
     await register_with_gonka()
 
 def main():
