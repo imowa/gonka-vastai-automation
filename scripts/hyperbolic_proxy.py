@@ -417,6 +417,63 @@ async def chat_completions(request: Request, version: str | None = None):
 # Registration with Gonka Network
 # ============================================================================
 
+async def register_proxy_with_admin_api():
+    """Register proxy node with Network Node Admin API (official registration)"""
+
+    print(f"\n📋 Registering proxy node with Network Node Admin API...")
+    print(f"   Node ID: {NODE_ID}")
+    print(f"   Host: {VPS_IP}")
+    print(f"   Port: {PROXY_PORT}")
+    print(f"   Model: {MODEL_NAME}")
+    print(f"   Admin API: {GONKA_ADMIN_API}")
+
+    # Build registration payload per official Gonka docs
+    registration_payload = {
+        "id": NODE_ID,
+        "host": VPS_IP,
+        "inference_port": PROXY_PORT,
+        "poc_port": PROXY_PORT,
+        "max_concurrent": 10,
+        "models": [
+            {
+                "model": MODEL_NAME,
+                "vllm_args": []  # No vLLM args needed for Hyperbolic API proxy
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{GONKA_ADMIN_API}/admin/v1/nodes",
+                json=registration_payload,
+                headers={"Content-Type": "application/json"}
+            )
+
+            if response.status_code in [200, 201]:
+                print(f"✅ Registered with Admin API")
+                print(f"   Response: {response.status_code}")
+                return True
+            elif response.status_code == 404:
+                # Admin API not found - likely using on-chain registration only
+                print(f"ℹ️  Admin API not accessible at {GONKA_ADMIN_API}")
+                print(f"   Using on-chain registration only (this is normal)")
+                return True  # Non-fatal
+            elif response.status_code == 409:
+                # Node already registered
+                print(f"ℹ️  Node already registered in Admin API")
+                return True  # Non-fatal
+            else:
+                print(f"⚠️  Registration returned status {response.status_code}")
+                print(f"   Response: {response.text[:200]}")
+                return True  # Non-fatal, allow proxy to start
+
+    except Exception as e:
+        print(f"⚠️  Admin API registration failed: {str(e)}")
+        print(f"   Proxy will use on-chain registration only")
+        return True  # Non-fatal, allow proxy to start
+
+
 async def register_with_gonka():
     """Verify Gonka Network on-chain registration (informational only)"""
 
@@ -473,7 +530,11 @@ async def register_with_gonka():
 
 @app.on_event("startup")
 async def startup_event():
-    """Register with Gonka on startup"""
+    """Register proxy with Gonka on startup"""
+    # Step 1: Register with Network Node Admin API (official node registration)
+    await register_proxy_with_admin_api()
+
+    # Step 2: Verify on-chain registration (informational)
     await register_with_gonka()
 
 def main():
