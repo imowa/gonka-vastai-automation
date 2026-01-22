@@ -365,16 +365,18 @@ class MLNodePoCManager:
 
     def register_mlnode(self, mlnode_url: str, instance_id: int) -> bool:
         """
-        Register MLNode with the Gonka Network Node
+        Register MLNode with the Gonka Network Node Admin API
 
         Args:
             mlnode_url: Base URL of the MLNode instance
             instance_id: Vast.ai instance ID (used for unique node ID)
 
         Returns:
-            True if successful
+            True if successful, False if failed
         """
-        logger.info("Registering MLNode with Network Node...")
+        logger.info("="*70)
+        logger.info("Registering MLNode with Network Node Admin API...")
+        logger.info("="*70)
 
         node_id = f"vastai-mlnode-{instance_id}"
         mlnode_host = mlnode_url.split('://')[-1].split(':')[0]
@@ -397,9 +399,14 @@ class MLNodePoCManager:
             ]
         }
 
-        try:
-            logger.info(f"Registration payload:\n{json.dumps(payload, indent=2)}")
+        logger.info(f"Configuration:")
+        logger.info(f"  Node ID: {node_id}")
+        logger.info(f"  Host: {mlnode_host}")
+        logger.info(f"  Ports: {self.mlnode_port} (inference & PoC)")
+        logger.info(f"  Model: {self.poc_model}")
+        logger.info(f"  Hardware: {self.hardware_count}x {self.hardware_type}")
 
+        try:
             response = requests.post(
                 f"{self.admin_api_url}/admin/v1/nodes",
                 headers={"Content-Type": "application/json"},
@@ -408,28 +415,114 @@ class MLNodePoCManager:
             )
 
             if response.status_code == 200:
-                result = response.json()
-                logger.info(f"✅ MLNode registered: {node_id}")
-                logger.info(f"Response: {result}")
-                return True
+                logger.info(f"✅ Admin API accepted registration (HTTP 200)")
+
+                # CRITICAL: Verify registration actually succeeded
+                if self.verify_registration(node_id):
+                    logger.info(f"✅ MLNode registration VERIFIED in Admin API")
+                    return True
+                else:
+                    logger.error(f"❌ REGISTRATION FAILED VERIFICATION")
+                    logger.error(f"   MLNode accepted by API but not found in registry")
+                    return False
+
+            elif response.status_code == 201:
+                logger.info(f"✅ Admin API created registration (HTTP 201)")
+
+                if self.verify_registration(node_id):
+                    logger.info(f"✅ MLNode registration VERIFIED in Admin API")
+                    return True
+                else:
+                    logger.error(f"❌ REGISTRATION FAILED VERIFICATION")
+                    return False
+
             elif response.status_code == 404:
-                logger.warning("⚠️  Registration endpoint not available (Gonka uses on-chain registration)")
-                logger.warning("   MLNode will be accessible but not in legacy node registry")
-                logger.info(f"   MLNode endpoint: {mlnode_url}")
-                return True  # Non-fatal, MLNode is still usable
-            else:
-                logger.error(f"Registration failed: {response.status_code}")
-                logger.error(f"Response: {response.text}")
+                logger.error(f"❌ FATAL: Admin API endpoint not found (404)")
+                logger.error(f"   Admin API must be at: {self.admin_api_url}/admin/v1/nodes")
+                logger.error(f"   Check if Network Node is running and accessible")
                 return False
 
-        except requests.RequestException as e:
-            logger.error(f"Failed to register MLNode: {e}")
-            if hasattr(e, 'response') and e.response:
-                if e.response.status_code == 404:
-                    logger.warning("⚠️  Registration endpoint not available (Gonka uses on-chain registration)")
-                    logger.info(f"   MLNode endpoint: {mlnode_url}")
-                    return True  # Non-fatal
-                logger.error(f"Response: {e.response.text}")
+            elif response.status_code == 409:
+                logger.warning(f"⚠️  Node already registered (409 Conflict)")
+                logger.info(f"   Attempting to clean up old registration...")
+
+                try:
+                    del_resp = requests.delete(
+                        f"{self.admin_api_url}/admin/v1/nodes/{node_id}",
+                        timeout=10
+                    )
+                    logger.info(f"   Old registration deleted: HTTP {del_resp.status_code}")
+
+                    # Wait before retry
+                    time.sleep(2)
+
+                    # Retry registration
+                    logger.info(f"   Retrying registration...")
+                    return self.register_mlnode(mlnode_url, instance_id)
+
+                except Exception as e:
+                    logger.error(f"   Failed to clean up: {e}")
+                    return False
+
+            else:
+                logger.error(f"❌ Registration failed: HTTP {response.status_code}")
+                try:
+                    error_data = response.json()
+                    logger.error(f"   Error: {error_data.get('error', error_data)}")
+                except:
+                    logger.error(f"   Response: {response.text[:500]}")
+                return False
+
+        except requests.Timeout:
+            logger.error(f"❌ FATAL: Registration timeout")
+            logger.error(f"   Admin API at {self.admin_api_url} is not responding")
+            return False
+
+        except Exception as e:
+            logger.error(f"❌ FATAL: Registration exception: {e}", exc_info=True)
+            return False
+
+    def verify_registration(self, node_id: str) -> bool:
+        """
+        Verify MLNode is actually in Admin API registry
+
+        Args:
+            node_id: Node ID to verify
+
+        Returns:
+            True if found, False otherwise
+        """
+        try:
+            logger.info(f"Verifying registration: {node_id}...")
+
+            response = requests.get(
+                f"{self.admin_api_url}/admin/v1/nodes/{node_id}",
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                node_data = response.json()
+                state = node_data.get('state', {})
+                admin_state = state.get('admin_state', {})
+
+                logger.info(f"   ✅ Found in Admin API")
+                logger.info(f"      Status: {state.get('current_status', 'UNKNOWN')}")
+                logger.info(f"      Epoch: {admin_state.get('epoch', 'UNKNOWN')}")
+                logger.info(f"      Enabled: {admin_state.get('enabled', 'UNKNOWN')}")
+
+                return True
+
+            elif response.status_code == 404:
+                logger.error(f"   ❌ NOT FOUND in Admin API (404)")
+                logger.error(f"   This means registration did not actually succeed")
+                return False
+
+            else:
+                logger.warning(f"   ⚠️  Verification check failed: HTTP {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"   ⚠️  Verification check error: {e}")
             return False
 
     def disable_mlnode(self, instance_id: int) -> bool:
